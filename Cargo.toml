@@ -1,0 +1,11 @@
+[package]
+name = "calf"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+nom = "8.0.0"
+serde = { version = "1.0.219", features = ["derive"] }
+log = "0.4.27"
+base64 = "0.22.1"
