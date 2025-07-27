@@ -1,9 +1,10 @@
+/// Heavily inspired by <https://github.com/panda-re/qcow-rs/blob/master/src/reader.rs> (MIT)
 use crate::{
-    calf::{CalfReader, CalfReaderAction, QcowInfo},
+    bootsector::boot::{BootInfo, boot_info},
+    calf::QcowInfo,
     error::CalfError,
     format::{
         cluster::read_cluster,
-        header::CalfHeader,
         level::{Level, read_level},
     },
 };
@@ -29,6 +30,7 @@ where
 }
 
 impl QcowInfo {
+    /// Create a reader that can bytes from OS guest inside the QCOW file
     pub fn setup_reader<'qcow, 'reader, T: io::Seek + io::Read>(
         &'qcow self,
         reader: &'reader mut BufReader<T>,
@@ -52,7 +54,6 @@ impl QcowInfo {
                     cluster_size,
                     os_size: qcow.header.size,
                     level1_key,
-                    // Unwrap is safe since we check above
                     level1_cache,
                     level2_cache: level2_cache.clone(),
                     level2_table_cache,
@@ -63,7 +64,7 @@ impl QcowInfo {
         }
 
         error!("[calf] Could not get level one table for key {level1_key}");
-        return Err(CalfError::Level);
+        Err(CalfError::Level)
     }
 }
 
@@ -87,6 +88,10 @@ impl<'a, 'qcow, T: std::io::Seek + std::io::Read> OsReader<'a, 'qcow, T> {
         self.os_size
     }
 
+    pub fn get_boot_info(&mut self) -> Result<BootInfo, CalfError> {
+        boot_info(self)
+    }
+
     fn refresh_level1_cache(&mut self) -> io::Result<()> {
         let size = 8;
         let level2_entries = self.cluster_size / size;
@@ -104,14 +109,10 @@ impl<'a, 'qcow, T: std::io::Seek + std::io::Read> OsReader<'a, 'qcow, T> {
                             "Read position past end of qcow file",
                         )
                     })?;
-            println!("------- lvl1 offset: {:?}", self.level1_cache);
 
-            self.level2_table_cache = read_level(
-                &mut self.reader,
-                &self.cluster_bits,
-                &self.level1_cache.offset,
-            )
-            .unwrap_or_default();
+            self.level2_table_cache =
+                read_level(self.reader, &self.cluster_bits, &self.level1_cache.offset)
+                    .unwrap_or_default();
         }
 
         Ok(())
@@ -122,34 +123,25 @@ impl<'a, 'qcow, T: std::io::Seek + std::io::Read> OsReader<'a, 'qcow, T> {
         let level2_entries = self.cluster_size / size;
         let level2_key = self.position / self.cluster_size;
         let level2_index = level2_key % level2_entries;
-        println!("index: {level2_index} - key: {level2_key} - entries: {level2_entries}");
 
         if self.level2_key != level2_key {
-            println!("lvl2 key not match: {} - {level2_key}", self.level2_key);
             self.level2_key = level2_key;
             self.refresh_level1_cache()?;
 
             if self.level1_cache.offset != 0 {
-                println!("    update l2 cache");
-                println!("l2 table cache len: {}", self.level2_table_cache.len());
-
                 if let Some(value) = self.level2_table_cache.get(level2_index as usize) {
                     self.level2_cache = value.clone();
                     self.level2_key = level2_key;
-                    println!("cache is now: {:?}", self.level2_cache);
                 }
             }
         }
 
         if self.level1_cache.offset == 0 {
-            println!("offset bad");
             return Err(io::Error::new(
                 io::ErrorKind::NotFound,
                 "offset to level 2 is 0",
             ));
         }
-
-        println!("cluster offset: {}", self.level2_cache.offset);
 
         self.cluster_bytes = read_cluster(
             self.reader,
@@ -168,19 +160,12 @@ where
     T: std::io::Seek + std::io::Read,
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        println!("lets read!");
         match self.refresh_level2_cache() {
             Ok(()) => {
-                println!("my pos is: {}", self.position);
-                println!("cluster size: {}", self.cluster_size);
-
                 let position_in_cluster = self.position % self.cluster_size;
-                println!("cluster pos: {position_in_cluster}");
                 let cluster_bytes_remaining = self.cluster_size - position_in_cluster;
-                println!("bytes remaining: {cluster_bytes_remaining}");
 
                 let read_len = u64::min(cluster_bytes_remaining, buf.len() as u64);
-                println!("going to read: {read_len} bytes");
                 let read_end: usize = (position_in_cluster + read_len).try_into().unwrap();
                 let pos_in_cluster: usize = position_in_cluster.try_into().unwrap();
 
@@ -193,7 +178,6 @@ where
                 Ok(read_len as usize)
             }
             Err(err) => (move || {
-                println!("sad err");
                 self.reader.seek(SeekFrom::Start(self.position)).ok()?;
                 let bytes_read = self.reader.read(buf).ok()?;
 
@@ -214,27 +198,30 @@ where
         match position {
             std::io::SeekFrom::Start(start_position) => self.position = start_position,
             std::io::SeekFrom::End(end_position) => {
-                self.position = (end_position + self.os_size as i64)
-                    .try_into()
-                    .map_err(|_| {
-                        io::Error::new(
-                            io::ErrorKind::InvalidInput,
-                            "seek is out of range of 64-bit position",
-                        )
-                    })?
+                self.position =
+                    (end_position + self.os_size as i64)
+                        .try_into()
+                        .map_err(|_err| {
+                            io::Error::new(
+                                io::ErrorKind::InvalidInput,
+                                "seek is out of range of 64-bit position",
+                            )
+                        })?;
             }
             std::io::SeekFrom::Current(relative_position) => {
                 self.position = self
                     .position
                     .try_into()
-                    .map(|pos: i64| pos + relative_position)
-                    .unwrap_or_else(|_| {
-                        ((self.position as i128) + (relative_position as i128))
-                            .try_into()
-                            .unwrap()
-                    })
+                    .map_or_else(
+                        |_| {
+                            ((self.position as i128) + (relative_position as i128))
+                                .try_into()
+                                .unwrap()
+                        },
+                        |pos: i64| pos + relative_position,
+                    )
                     .try_into()
-                    .map_err(|_| {
+                    .map_err(|_err| {
                         io::Error::new(
                             io::ErrorKind::InvalidInput,
                             "seek is out of range of 64-bit position",

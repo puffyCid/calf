@@ -1,4 +1,5 @@
 use crate::{
+    bootsector::boot::{BootInfo, boot_info},
     error::CalfError,
     format::{
         header::{CalfHeader, Compression, Encryption, Header},
@@ -32,11 +33,18 @@ pub trait CalfReaderAction<'qcow, 'reader, T: std::io::Seek + std::io::Read> {
     fn snapshots_count(&mut self) -> Result<u32, CalfError>;
     /// Get cluster bits value for QCOW
     fn cluster_bits(&mut self) -> Result<u32, CalfError>;
+    /// List QCOW level one entries
     fn level1_entries(&mut self) -> Result<Vec<Level>, CalfError>;
+    /// Create a reader that can read bytes from the guest OS within QCOW file
     fn os_reader(
         &'reader mut self,
         info: &'qcow QcowInfo,
     ) -> Result<OsReader<'qcow, 'reader, T>, CalfError>;
+    /// Determine OS boot information
+    fn get_boot_info(
+        &mut self,
+        reader: &mut OsReader<'qcow, 'reader, T>,
+    ) -> Result<BootInfo, CalfError>;
 }
 
 impl<'qcow, 'reader, T: std::io::Seek + std::io::Read> CalfReaderAction<'qcow, 'reader, T>
@@ -83,6 +91,13 @@ impl<'qcow, 'reader, T: std::io::Seek + std::io::Read> CalfReaderAction<'qcow, '
         info: &'qcow QcowInfo,
     ) -> Result<OsReader<'qcow, 'reader, T>, CalfError> {
         QcowInfo::setup_reader(info, &mut self.fs)
+    }
+
+    fn get_boot_info(
+        &mut self,
+        reader: &mut OsReader<'qcow, 'reader, T>,
+    ) -> Result<BootInfo, CalfError> {
+        boot_info(reader)
     }
 }
 

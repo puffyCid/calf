@@ -5,7 +5,7 @@ use calf::{
 use std::{
     env,
     fs::File,
-    io::{BufReader, Read, Seek},
+    io::{BufReader, Read, Seek, SeekFrom},
     path::Path,
 };
 
@@ -46,12 +46,13 @@ fn qcow_info(path: &str) {
         level1_table: calf.level1_entries().unwrap(),
     };
     let mut os_reader = calf.os_reader(&info).unwrap();
-    println!("{}", os_reader.get_os_size());
-    let mut buf = vec![0; 4096];
+    println!("OS size is {} bytes", os_reader.get_os_size());
+    let info = os_reader.get_boot_info().unwrap();
+    println!("Boot info: {info:?}");
 
-    os_reader.seek(std::io::SeekFrom::Start(165871616)).unwrap();
-    os_reader.read_exact(&mut buf).unwrap();
+    os_reader.seek(SeekFrom::Start(1048576)).unwrap();
+    let mut bytes = vec![0; 1024];
 
-    println!("sector bytes: {buf:?}");
-    panic!("TODO: Try NTFS crate and see if u can read it?");
+    os_reader.read_exact(&mut bytes).unwrap();
+    println!("First 1024 bytes: {bytes:?}");
 }

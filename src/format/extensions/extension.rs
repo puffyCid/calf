@@ -51,7 +51,7 @@ impl Extensions {
                 0x0 => break,
                 0xe2792aca => println!("backing file?"),
                 0x6803f857 => {
-                    ext.features = Features::grab_features(feature_data).unwrap_or_default()
+                    ext.features = Features::grab_features(feature_data).unwrap_or_default();
                 }
                 0x23852875 => println!("bitmaps extension"),
                 0x0537be77 => println!("encryption info"),

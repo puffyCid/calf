@@ -1,6 +1,5 @@
-use std::io::{self, BufReader, Read, Seek, SeekFrom};
-
 use super::header::Compression;
+use std::io::{self, BufReader, Read, Seek, SeekFrom};
 
 pub(crate) fn read_cluster<T: std::io::Seek + std::io::Read>(
     reader: &mut BufReader<T>,

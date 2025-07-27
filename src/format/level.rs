@@ -1,4 +1,4 @@
-use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 use crate::{
     calf::CalfReader,
@@ -50,7 +50,7 @@ pub(crate) fn read_level<T: std::io::Seek + std::io::Read>(
         return Err(CalfError::SeekFile);
     }
 
-    println!("cluster bits ofr read level: {cluster_bits}");
+    println!("cluster bits for read level: {cluster_bits}");
     let mut buf = vec![0; (1 << *cluster_bits) as usize];
     if let Ok(bytes) = reader.read(&mut buf) {
         let levels = match Level::get_levels(&buf) {
@@ -62,11 +62,18 @@ pub(crate) fn read_level<T: std::io::Seek + std::io::Read>(
             }
         };
 
+        if bytes != buf.len() {
+            println!(
+                "[calf] Bytes read does equal expected cluster bits size {}",
+                1 << *cluster_bits
+            );
+        }
+
         return Ok(levels);
     }
 
     error!("[calf] Could not read to level data");
-    return Err(CalfError::ReadFile);
+    Err(CalfError::ReadFile)
 }
 
 impl Level {
@@ -80,14 +87,9 @@ impl Level {
         // Last two bits will determine if the data is compressed
         let is_copied = 0x8000000000000000;
         let is_compressed = 0x4000000000000000;
-        let unused = 0;
         while input.len() >= min_size {
             let (remaining, value) = nom_unsigned_eight_bytes(input, Endian::Be)?;
             input = remaining;
-
-            //if value == unused {
-            //    continue;
-            //}
 
             let offset = value & offset_check;
             let level = Level {
@@ -140,13 +142,13 @@ mod tests {
 
         let mut calf = CalfReader { fs: buf };
         let results = calf.levels(&0, &65536).unwrap();
-        assert_eq!(results.len(), 325);
+        assert_eq!(results.len(), 8192);
         assert_eq!(results[0].offset, 327680);
         assert_eq!(results[0].is_compressed, false);
         assert_eq!(results[0].is_copied, true);
-        assert_eq!(results[123].offset, 40894464);
-        assert_eq!(results[159].offset, 43515904);
-        assert_eq!(results[1].offset, 524288);
+        assert_eq!(results[123].offset, 39911424);
+        assert_eq!(results[159].offset, 42532864);
+        assert_eq!(results[1].offset, 0);
     }
 
     #[test]
@@ -156,12 +158,12 @@ mod tests {
         let test = read(test_location.to_str().unwrap()).unwrap();
 
         let (_, results) = Level::get_levels(&test).unwrap();
-        assert_eq!(results.len(), 325);
+        assert_eq!(results.len(), 8192);
         assert_eq!(results[0].offset, 327680);
         assert_eq!(results[0].is_compressed, false);
         assert_eq!(results[0].is_copied, true);
-        assert_eq!(results[123].offset, 40894464);
-        assert_eq!(results[159].offset, 43515904);
-        assert_eq!(results[1].offset, 524288);
+        assert_eq!(results[123].offset, 39911424);
+        assert_eq!(results[159].offset, 42532864);
+        assert_eq!(results[1].offset, 0);
     }
 }
