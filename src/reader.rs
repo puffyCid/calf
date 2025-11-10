@@ -143,6 +143,7 @@ impl<'a, 'qcow, T: std::io::Seek + std::io::Read> OsReader<'a, 'qcow, T> {
             ));
         }
 
+        println!("level 2 cache: {:?}. Level 1 cache: {:?}", self.level2_cache, self.level1_cache);
         self.cluster_bytes = read_cluster(
             self.reader,
             &self.level2_cache.offset,
@@ -160,17 +161,19 @@ where
     T: std::io::Seek + std::io::Read,
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        println!("offset: {}", self.position);
         match self.refresh_level2_cache() {
             Ok(()) => {
+                println!("here?");
                 let position_in_cluster = self.position % self.cluster_size;
                 let cluster_bytes_remaining = self.cluster_size - position_in_cluster;
 
                 let read_len = u64::min(cluster_bytes_remaining, buf.len() as u64);
-                let read_end: usize = (position_in_cluster + read_len).try_into().unwrap();
-                let pos_in_cluster: usize = position_in_cluster.try_into().unwrap();
+                let read_end = position_in_cluster + read_len;
+                let pos_in_cluster = position_in_cluster as usize;
 
                 buf[..read_len as usize]
-                    .copy_from_slice(&self.cluster_bytes[pos_in_cluster..read_end]);
+                    .copy_from_slice(&self.cluster_bytes[pos_in_cluster..read_end as usize]);
 
                 self.position += read_len;
                 let _ = self.refresh_level2_cache();

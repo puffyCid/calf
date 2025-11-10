@@ -104,7 +104,11 @@ impl<'qcow, 'reader, T: std::io::Seek + std::io::Read> CalfReaderAction<'qcow, '
 #[cfg(test)]
 mod tests {
     use super::CalfReader;
-    use crate::calf::{CalfReaderAction, Compression, Encryption};
+    use crate::{
+        bootsector::boot::{BootType, PartitionType},
+        calf::{CalfReaderAction, Compression, Encryption, QcowInfo},
+        format::header::CalfHeader,
+    };
     use std::{fs::File, io::BufReader, path::PathBuf};
 
     #[test]
@@ -121,5 +125,75 @@ mod tests {
         assert_eq!(calf.cluster_size().unwrap(), 65536);
         assert_eq!(calf.snapshots_count().unwrap(), 0);
         assert_eq!(calf.size().unwrap(), 85899345920);
+    }
+
+    #[test]
+    fn test_read_qcow_lvm() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/qcow/debian13-lvm.qcow");
+
+        let reader = File::open(test_location.to_str().unwrap()).unwrap();
+        let buf = BufReader::new(reader);
+
+        let mut calf = CalfReader { fs: buf };
+        assert_eq!(calf.version().unwrap(), 3);
+        assert_eq!(calf.compression().unwrap(), Compression::Zlib);
+        assert_eq!(calf.encryption().unwrap(), Encryption::None);
+
+        assert!(calf.size().unwrap() > 10);
+        let info = QcowInfo {
+            header: calf.header().unwrap(),
+            level1_table: calf.level1_entries().unwrap(),
+        };
+        let mut os_reader = calf.os_reader(&info).unwrap();
+
+        let boot = os_reader.get_boot_info().unwrap();
+        assert_eq!(boot.partitions.len(), 6);
+        assert_eq!(boot.boot_type, BootType::MasterBootRecord);
+        assert_eq!(boot.partitions[4].partition_type, PartitionType::LinuxLvm);
+    }
+
+    #[test]
+    fn test_read_qcow_debian() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/qcow/debian13.qcow");
+
+        let reader = File::open(test_location.to_str().unwrap()).unwrap();
+        let buf = BufReader::new(reader);
+
+        let mut calf = CalfReader { fs: buf };
+        assert_eq!(calf.version().unwrap(), 3);
+        assert_eq!(calf.compression().unwrap(), Compression::Zlib);
+        assert_eq!(calf.encryption().unwrap(), Encryption::None);
+
+        assert!(calf.size().unwrap() > 10);
+        let info = QcowInfo {
+            header: calf.header().unwrap(),
+            level1_table: calf.level1_entries().unwrap(),
+        };
+        let mut os_reader = calf.os_reader(&info).unwrap();
+
+        let boot = os_reader.get_boot_info().unwrap();
+        assert_eq!(boot.partitions.len(), 12);
+        assert_eq!(boot.boot_type, BootType::MasterBootRecord);
+        assert_eq!(boot.partitions[0].partition_type, PartitionType::Linux);
+        assert_eq!(boot.partitions[1].partition_type, PartitionType::Extended);
+        assert_eq!(boot.partitions[2].partition_type, PartitionType::None);
+        assert_eq!(boot.partitions[3].partition_type, PartitionType::None);
+        assert_eq!(boot.partitions[4].partition_type, PartitionType::Linux);
+        assert_eq!(boot.partitions[5].partition_type, PartitionType::Extended);
+        assert_eq!(boot.partitions[6].partition_type, PartitionType::LinuxSwap);
+        assert_eq!(boot.partitions[7].partition_type, PartitionType::Extended);
+        assert_eq!(boot.partitions[8].partition_type, PartitionType::Linux);
+        assert_eq!(boot.partitions[9].partition_type, PartitionType::Extended);
+        assert_eq!(boot.partitions[10].partition_type, PartitionType::Linux);
+        assert_eq!(boot.partitions[11].partition_type, PartitionType::None);
+
+        assert_eq!(boot.partitions[4].offset_start, 1024);
+        assert_eq!(boot.partitions[0].offset_start, 1048576);
+        assert_eq!(boot.partitions[10].offset_start, 92160);
+
+        assert_eq!(boot.partitions[1].offset_start, 7535066112);
+        assert_eq!(boot.partitions[5].offset_start, 9747348480);
     }
 }

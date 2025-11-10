@@ -4,8 +4,10 @@ use crate::{
         Endian, nom_unsigned_four_bytes, nom_unsigned_one_byte, nom_unsigned_two_bytes,
     },
 };
-use nom::bytes::complete::take;
+use log::warn;
+use nom::{bytes::complete::take, number::streaming::le_u16};
 
+/// Parse the Master Boot Record (MBR) partition. We must be able to parse this in order to parse the rest of the filesystem
 pub(crate) fn parse_mbr(data: &[u8]) -> nom::IResult<&[u8], BootInfo> {
     let boot_binary_code: u16 = 440;
     let (input, _binary) = take(boot_binary_code)(data)?;
@@ -22,12 +24,12 @@ pub(crate) fn parse_mbr(data: &[u8]) -> nom::IResult<&[u8], BootInfo> {
     let max_partitions = 4;
     let mut count = 0;
 
+    // Last two partitions usually do not have anything
     while count < max_partitions {
         let (remaining, partition) = take(partition_size)(input)?;
         input = remaining;
 
         let (_, (part, is_gpt)) = parse_partition(partition)?;
-        println!("{part:?}");
         info.partitions.push(part);
 
         if is_gpt {
@@ -39,6 +41,7 @@ pub(crate) fn parse_mbr(data: &[u8]) -> nom::IResult<&[u8], BootInfo> {
     Ok((input, info))
 }
 
+/// Parse the partition data. It is very small, 16 bytes.
 fn parse_partition(data: &[u8]) -> nom::IResult<&[u8], (Partition, bool)> {
     let (input, bootable) = nom_unsigned_one_byte(data, Endian::Le)?;
     let sector_size: u8 = 3;
@@ -73,14 +76,173 @@ fn parse_partition(data: &[u8]) -> nom::IResult<&[u8], (Partition, bool)> {
     Ok((input, (part, is_gpt)))
 }
 
+/// Determine the partition type, only a few are supported right now
+/// There are alot: https://en.wikipedia.org/wiki/Partition_type#List_of_partition_IDs
 fn get_partition_type(part: u8) -> PartitionType {
     match part {
         0x0 => PartitionType::None,
         0x7 | 0x27 => PartitionType::Ntfs,
         0x83 => PartitionType::Linux,
+        0x82 => PartitionType::LinuxSwap,
+        0x8e => PartitionType::LinuxLvm,
         0xc => PartitionType::Fat32,
         0xee | 0xef => PartitionType::Protective,
-        0x5 => PartitionType::Extended,
+        0x5 | 0xf => PartitionType::Extended,
         _ => PartitionType::Unknown,
+    }
+}
+
+/// Parse the extended partitions.  https://en.wikipedia.org/wiki/Extended_boot_record
+pub(crate) fn parse_extended(
+    data: &[u8],
+    root_offset: u64,
+) -> nom::IResult<&[u8], (Vec<Partition>, bool)> {
+    let mut parts = Vec::new();
+
+    // *may* contain another boot loader
+    let unused: u16 = 446;
+    let (input, _) = take(unused)(data)?;
+    let entry_size: u8 = 16;
+    let (input, first_entry) = take(entry_size)(input)?;
+    let (_, mut first_part) = parse_partition(first_entry)?;
+
+    let mut has_extened = false;
+    // The first entry in an extended partition should never? be extended Type. But check just in case
+    if first_part.0.partition_type == PartitionType::Extended {
+        has_extened = true;
+        first_part.0.offset_start += root_offset;
+    }
+
+    let (input, second_entry) = take(entry_size)(input)?;
+    let (_, mut part) = parse_partition(second_entry)?;
+
+    // Extended partition only has two partitions. But technically allows 4?
+    let (input, _third_entry) = take(entry_size)(input)?;
+    let (input, _fourth_entry) = take(entry_size)(input)?;
+    let (input, sig) = le_u16(input)?;
+
+    let part_sig = 43605;
+    if sig != part_sig {
+        warn!("[calf] Did not get expected extended signature. Expected 0xAA55, got: {sig}");
+    }
+
+    if part.0.partition_type == PartitionType::Extended {
+        has_extened = true;
+        part.0.offset_start += root_offset;
+        // First entry offset combines the extended partition offset and the root offset
+        //first_part.0.offset_start += part.0.offset_start;
+        //  first_part.0.offset_start *= 512;
+    }
+    parts.push(first_part.0);
+
+    parts.push(part.0);
+    Ok((input, (parts, has_extened)))
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::bootsector::{
+        boot::{BootType, PartitionType},
+        mbr::{get_partition_type, parse_extended, parse_mbr, parse_partition},
+    };
+    use std::{fs::read, path::PathBuf};
+
+    #[test]
+    fn test_parse_extended() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/mbr/extended_partition.raw");
+        let bytes = read(test_location.to_str().unwrap()).unwrap();
+        let (_, (results, has_extended)) = parse_extended(&bytes, 0).unwrap();
+        assert!(has_extended);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].partition_type, PartitionType::Linux);
+        assert_eq!(results[0].offset_start, 1024);
+        assert_eq!(results[1].offset_start, 10000111616);
+        assert_eq!(results[1].partition_type, PartitionType::Extended);
+    }
+
+    #[test]
+    fn test_get_partition_type() {
+        let test = [0x0, 0x7, 0x27, 0x83, 0x82, 0x8e, 0xc, 0xee, 0xef, 0x5, 0xf];
+        for entry in test {
+            assert_ne!(get_partition_type(entry), PartitionType::Unknown);
+        }
+    }
+
+    #[test]
+    fn test_parse_parition() {
+        let test = [128, 4, 1, 4, 131, 254, 194, 255, 0, 8, 0, 0, 0, 128, 224, 0];
+        let (_, (result, is_gpt)) = parse_partition(&test).unwrap();
+        assert_eq!(result.partition_size, 7532969984);
+        assert_eq!(result.first_sector_offset, 262404);
+        assert!(!is_gpt);
+    }
+
+    #[test]
+    fn test_parse_mbr() {
+        let test = [
+            235, 99, 144, 16, 142, 208, 188, 0, 176, 184, 0, 0, 142, 216, 142, 192, 251, 190, 0,
+            124, 191, 0, 6, 185, 0, 2, 243, 164, 234, 33, 6, 0, 0, 190, 190, 7, 56, 4, 117, 11,
+            131, 198, 16, 129, 254, 254, 7, 117, 243, 235, 22, 180, 2, 176, 1, 187, 0, 124, 178,
+            128, 138, 116, 1, 139, 76, 2, 205, 19, 234, 0, 124, 0, 0, 235, 254, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 128, 1, 0, 0, 0, 0, 0, 0, 0, 255, 250, 144, 144, 246,
+            194, 128, 116, 5, 246, 194, 112, 116, 2, 178, 128, 234, 121, 124, 0, 0, 49, 192, 142,
+            216, 142, 208, 188, 0, 32, 251, 160, 100, 124, 60, 255, 116, 2, 136, 194, 82, 190, 128,
+            125, 232, 23, 1, 190, 5, 124, 180, 65, 187, 170, 85, 205, 19, 90, 82, 114, 61, 129,
+            251, 85, 170, 117, 55, 131, 225, 1, 116, 50, 49, 192, 137, 68, 4, 64, 136, 68, 255,
+            137, 68, 2, 199, 4, 16, 0, 102, 139, 30, 92, 124, 102, 137, 92, 8, 102, 139, 30, 96,
+            124, 102, 137, 92, 12, 199, 68, 6, 0, 112, 180, 66, 205, 19, 114, 5, 187, 0, 112, 235,
+            118, 180, 8, 205, 19, 115, 13, 90, 132, 210, 15, 131, 216, 0, 190, 139, 125, 233, 130,
+            0, 102, 15, 182, 198, 136, 100, 255, 64, 102, 137, 68, 4, 15, 182, 209, 193, 226, 2,
+            136, 232, 136, 244, 64, 137, 68, 8, 15, 182, 194, 192, 232, 2, 102, 137, 4, 102, 161,
+            96, 124, 102, 9, 192, 117, 78, 102, 161, 92, 124, 102, 49, 210, 102, 247, 52, 136, 209,
+            49, 210, 102, 247, 116, 4, 59, 68, 8, 125, 55, 254, 193, 136, 197, 48, 192, 193, 232,
+            2, 8, 193, 136, 208, 90, 136, 198, 187, 0, 112, 142, 195, 49, 219, 184, 1, 2, 205, 19,
+            114, 30, 140, 195, 96, 30, 185, 0, 1, 142, 219, 49, 246, 191, 0, 128, 142, 198, 252,
+            243, 165, 31, 97, 255, 38, 90, 124, 190, 134, 125, 235, 3, 190, 149, 125, 232, 52, 0,
+            190, 154, 125, 232, 46, 0, 205, 24, 235, 254, 71, 82, 85, 66, 32, 0, 71, 101, 111, 109,
+            0, 72, 97, 114, 100, 32, 68, 105, 115, 107, 0, 82, 101, 97, 100, 0, 32, 69, 114, 114,
+            111, 114, 13, 10, 0, 187, 1, 0, 180, 14, 205, 16, 172, 60, 0, 117, 244, 195, 0, 0, 0,
+            0, 0, 0, 0, 0, 2, 59, 99, 240, 0, 0, 128, 4, 1, 4, 131, 254, 194, 255, 0, 8, 0, 0, 0,
+            128, 224, 0, 0, 254, 194, 255, 15, 254, 194, 255, 254, 143, 224, 0, 2, 104, 159, 1, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 85, 170,
+        ];
+        let (_, result) = parse_mbr(&test).unwrap();
+        assert_eq!(result.boot_type, BootType::MasterBootRecord);
+        assert_eq!(result.partitions.len(), 4);
+
+        assert_eq!(result.partitions[1].offset_start, 7535066112);
+    }
+
+    #[test]
+    fn test_parse_extended_lvm() {
+        let test = [
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 254, 194, 255, 142, 254, 194, 255, 2, 0, 0, 0, 0,
+            40, 167, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 85, 170,
+        ];
+        let (_, (results, has_extended)) = parse_extended(&test, 832568320).unwrap();
+        assert!(!has_extended);
+        assert_eq!(results.len(), 2);
+        assert_eq!(results[0].partition_type, PartitionType::LinuxLvm);
+        assert_eq!(results[0].offset_start, 1024);
+        assert_eq!(results[1].offset_start, 0);
+        assert_eq!(results[1].partition_type, PartitionType::None);
     }
 }

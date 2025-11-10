@@ -8,7 +8,7 @@ use crate::{
         read::read_bytes,
     },
 };
-use log::error;
+use log::{error, warn};
 
 #[derive(Debug, Clone)]
 pub struct Level {
@@ -63,8 +63,8 @@ pub(crate) fn read_level<T: std::io::Seek + std::io::Read>(
         };
 
         if bytes != buf.len() {
-            println!(
-                "[calf] Bytes read does equal expected cluster bits size {}",
+            warn!(
+                "[calf] Bytes read does not equal expected cluster bits size {}",
                 1 << *cluster_bits
             );
         }
@@ -91,6 +91,7 @@ impl Level {
             let (remaining, value) = nom_unsigned_eight_bytes(input, Endian::Be)?;
             input = remaining;
 
+            // Even if the offset is 0. Do not skip
             let offset = value & offset_check;
             let level = Level {
                 offset,

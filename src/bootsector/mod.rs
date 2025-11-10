@@ -1,2 +1,2 @@
-pub(crate) mod boot;
+pub mod boot;
 pub(crate) mod mbr;

@@ -6,6 +6,7 @@ license = "MIT"
 
 [dependencies]
 nom = "8.0.0"
-serde = { version = "1.0.219", features = ["derive"] }
-log = "0.4.27"
+serde = { version = "1.0.228", features = ["derive"] }
+log = "0.4.28"
 base64 = "0.22.1"
+ext4-fs = {path = "../ext4-fs"}

@@ -72,7 +72,7 @@
     rust_2018_idioms
 )]
 
-mod bootsector;
+pub mod bootsector;
 pub mod calf;
 mod error;
 pub mod format;
