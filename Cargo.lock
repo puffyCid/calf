@@ -31,7 +31,6 @@ dependencies = [
  "ext4-fs",
  "log",
  "nom",
- "serde",
 ]
 
 [[package]]
