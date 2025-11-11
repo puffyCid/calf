@@ -19,6 +19,7 @@ pub struct QcowInfo {
     pub level1_table: Vec<Level>,
 }
 
+/// Create a reader that can parse a QCOW file
 pub trait CalfReaderAction<'qcow, 'reader, T: std::io::Seek + std::io::Read> {
     /// Return QCOW version
     fn version(&mut self) -> Result<u32, CalfError>;
@@ -36,7 +37,7 @@ pub trait CalfReaderAction<'qcow, 'reader, T: std::io::Seek + std::io::Read> {
     fn cluster_bits(&mut self) -> Result<u32, CalfError>;
     /// List QCOW level one entries
     fn level1_entries(&mut self) -> Result<Vec<Level>, CalfError>;
-    /// Create a reader that can read bytes from the guest OS within QCOW file
+    /// Create a reader that can read bytes from the guest OS within the QCOW file
     fn os_reader(
         &'reader mut self,
         info: &'qcow QcowInfo,
@@ -90,7 +91,7 @@ impl<'qcow, 'reader, T: std::io::Seek + std::io::Read> CalfReaderAction<'qcow, '
         &'reader mut self,
         info: &'qcow QcowInfo,
     ) -> Result<OsReader<'qcow, 'reader, T>, CalfError> {
-        QcowInfo::setup_reader(info, &mut self.fs)
+        QcowInfo::new(info, &mut self.fs)
     }
 
     fn get_boot_info(

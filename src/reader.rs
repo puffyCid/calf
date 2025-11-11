@@ -31,7 +31,7 @@ where
 
 impl QcowInfo {
     /// Create a reader that can bytes from OS guest inside the QCOW file
-    pub fn setup_reader<'qcow, 'reader, T: io::Seek + io::Read>(
+    pub fn new<'qcow, 'reader, T: io::Seek + io::Read>(
         &'qcow self,
         reader: &'reader mut BufReader<T>,
     ) -> Result<OsReader<'qcow, 'reader, T>, CalfError> {

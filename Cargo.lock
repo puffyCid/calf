@@ -71,7 +71,9 @@ dependencies = [
 
 [[package]]
 name = "ext4-fs"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "77bfa87c8e901929647539a5637ec70336ee625f460dbc8738693f20504113bb"
 dependencies = [
  "base64",
  "log",

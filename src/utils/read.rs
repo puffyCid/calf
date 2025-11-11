@@ -1,8 +1,8 @@
-use log::{error, warn};
-
 use crate::error::CalfError;
+use log::{error, warn};
 use std::io::{BufReader, Read, Seek, SeekFrom};
 
+/// Read bytes from the QCOW file. This is *not* used to read OS bytes within the QCOW file! See instead read_cluster
 pub(crate) fn read_bytes<T: std::io::Read + std::io::Seek>(
     offset: u64,
     bytes: u64,

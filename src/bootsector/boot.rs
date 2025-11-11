@@ -74,9 +74,8 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
 
     let mut extra_parts = Vec::new();
     let mut root_offset;
-    // Second partition should be the extended type.There is only one
+    // Second partition should be the extended type. There is only one
     for part in &boot.partitions {
-        error!("partition: {part:?}");
         if part.partition_type != PartitionType::Extended {
             continue;
         }

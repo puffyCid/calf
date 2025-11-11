@@ -3,10 +3,13 @@ name = "calf"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+repository = "https://github.com/puffyCid/calf"
+description = "A very basic library to read QCOW files"
+keywords = ["forensics"]
 
 [dependencies]
 nom = "8.0.0"
 serde = { version = "1.0.228", features = ["derive"] }
 log = "0.4.28"
 base64 = "0.22.1"
-ext4-fs = {path = "../ext4-fs"}
+ext4-fs = "0.1.1"
