@@ -1,23 +1,16 @@
+use crate::{error::CalfError, utils::strings::extract_utf8_string};
 use log::{error, warn};
-use nom::bytes::complete::take;
-
-use crate::{
-    error::CalfError,
-    utils::{
-        nom_helper::{Endian, nom_unsigned_one_byte},
-        strings::extract_utf8_string,
-    },
-};
+use nom::{bytes::complete::take, number::complete::be_u8};
 
 #[derive(Debug)]
-pub(crate) struct Features {
-    feature_type: FeatureType,
-    bit_number: u8,
-    value: String,
+pub struct Features {
+    pub feature_type: FeatureType,
+    pub bit_number: u8,
+    pub value: String,
 }
 
 #[derive(Debug, PartialEq)]
-enum FeatureType {
+pub enum FeatureType {
     Incompatible,
     Compatible,
     Autoclear,
@@ -45,8 +38,8 @@ impl Features {
 
         let mut features = Vec::new();
         while input.len() >= min_size {
-            let (remaining, feature_data) = nom_unsigned_one_byte(input, Endian::Be)?;
-            let (remaining, bit_number) = nom_unsigned_one_byte(remaining, Endian::Be)?;
+            let (remaining, feature_data) = be_u8(input)?;
+            let (remaining, bit_number) = be_u8(remaining)?;
 
             let string_size: u8 = 46;
             let (remaining, string_data) = take(string_size)(remaining)?;

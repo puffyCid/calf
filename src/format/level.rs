@@ -1,14 +1,7 @@
-use std::io::{BufReader, Read, Seek, SeekFrom};
-
-use crate::{
-    calf::CalfReader,
-    error::CalfError,
-    utils::{
-        nom_helper::{Endian, nom_unsigned_eight_bytes},
-        read::read_bytes,
-    },
-};
+use crate::{calf::CalfReader, error::CalfError, utils::read::read_bytes};
 use log::{error, warn};
+use nom::number::complete::be_u64;
+use std::io::{BufReader, Read, Seek, SeekFrom};
 
 #[derive(Debug, Clone)]
 pub struct Level {
@@ -21,16 +14,15 @@ pub struct Level {
 
 pub trait CalfLevel<T: std::io::Seek + std::io::Read> {
     /// Return array of `Levels` at provided offset
-    fn levels(&mut self, offset: &u64, size: &u32) -> Result<Vec<Level>, CalfError>;
+    fn levels(&mut self, offset: u64, size: u32) -> Result<Vec<Level>, CalfError>;
 }
 
 impl<T: std::io::Seek + std::io::Read> CalfLevel<T> for CalfReader<T> {
-    fn levels(&mut self, offset: &u64, level_entries: &u32) -> Result<Vec<Level>, CalfError> {
-        let bytes = read_bytes(offset, &(*level_entries as u64), &mut self.fs)?;
+    fn levels(&mut self, offset: u64, level_entries: u32) -> Result<Vec<Level>, CalfError> {
+        let bytes = read_bytes(offset, level_entries as u64, &mut self.fs)?;
         let value = match Level::get_levels(&bytes) {
             Ok((_, results)) => results,
             Err(_err) => {
-                println!("{_err:?}");
                 error!("[calf] Failed to parse level");
                 return Err(CalfError::Level);
             }
@@ -50,13 +42,11 @@ pub(crate) fn read_level<T: std::io::Seek + std::io::Read>(
         return Err(CalfError::SeekFile);
     }
 
-    println!("cluster bits for read level: {cluster_bits}");
     let mut buf = vec![0; (1 << *cluster_bits) as usize];
     if let Ok(bytes) = reader.read(&mut buf) {
         let levels = match Level::get_levels(&buf) {
             Ok((_, results)) => results,
             Err(_err) => {
-                println!("{_err:?}");
                 error!("[calf] Failed to parse level");
                 return Err(CalfError::Level);
             }
@@ -88,7 +78,7 @@ impl Level {
         let is_copied = 0x8000000000000000;
         let is_compressed = 0x4000000000000000;
         while input.len() >= min_size {
-            let (remaining, value) = nom_unsigned_eight_bytes(input, Endian::Be)?;
+            let (remaining, value) = be_u64(input)?;
             input = remaining;
 
             // Even if the offset is 0. Do not skip
@@ -124,7 +114,7 @@ mod tests {
         let buf = BufReader::new(reader);
 
         let mut calf = CalfReader { fs: buf };
-        let results = calf.levels(&0, &1280).unwrap();
+        let results = calf.levels(0, 1280).unwrap();
         assert_eq!(results.len(), 160);
         assert_eq!(results[0].offset, 196608);
         assert_eq!(results[0].is_compressed, false);
@@ -142,7 +132,7 @@ mod tests {
         let buf = BufReader::new(reader);
 
         let mut calf = CalfReader { fs: buf };
-        let results = calf.levels(&0, &65536).unwrap();
+        let results = calf.levels(0, 65536).unwrap();
         assert_eq!(results.len(), 8192);
         assert_eq!(results[0].offset, 327680);
         assert_eq!(results[0].is_compressed, false);

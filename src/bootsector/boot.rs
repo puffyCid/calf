@@ -60,14 +60,14 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     let sector_size = 512;
     let mut mbr_buff = vec![0; sector_size];
     if let Err(err) = reader.read(&mut mbr_buff) {
-        println!("[calf] Could not read MBR first {sector_size} bytes: {err:?}");
+        error!("[calf] Could not read MBR first {sector_size} bytes: {err:?}");
         return Err(CalfError::ReadFile);
     }
 
     let mut boot = match parse_mbr(&mbr_buff) {
         Ok((_, result)) => result,
         Err(err) => {
-            println!("[calf] Could not parse MBR first {sector_size} bytes: {err:?}");
+            error!("[calf] Could not parse MBR first {sector_size} bytes: {err:?}");
             return Err(CalfError::ParseMbr);
         }
     };
@@ -76,7 +76,7 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     let mut root_offset;
     // Second partition should be the extended type.There is only one
     for part in &boot.partitions {
-        println!("partition: {part:?}");
+        error!("partition: {part:?}");
         if part.partition_type != PartitionType::Extended {
             continue;
         }
@@ -89,21 +89,23 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
         }
         let mut mbr_buff = vec![0; sector_size];
         if let Err(err) = reader.read(&mut mbr_buff) {
-            println!("[calf] Could not read extended partition {sector_size} bytes: {err:?}");
+            error!("[calf] Could not read extended partition {sector_size} bytes: {err:?}");
             return Err(CalfError::ReadFile);
         }
 
         // We pass the root_offset to ensure any additional extended partition entries are properly setup to point to the absolute offset (root_offset + extended partition relative offset)
-        let (mut ext_boot, mut has_extended) = match parse_extended(&mbr_buff, root_offset) {
-            Ok((_, result)) => result,
-            Err(err) => {
-                println!("[calf] Could not parse extended partition {sector_size} bytes: {err:?}");
-                return Err(CalfError::ExtendedPartition);
-            }
-        };
+        let (mut ext_boot, mut has_extended) =
+            match parse_extended(&mbr_buff, root_offset, part.offset_start) {
+                Ok((_, result)) => result,
+                Err(err) => {
+                    error!(
+                        "[calf] Could not parse extended partition {sector_size} bytes: {err:?}"
+                    );
+                    return Err(CalfError::ExtendedPartition);
+                }
+            };
         extra_parts.append(&mut ext_boot.clone());
 
-        println!("{ext_boot:?}");
         // Extended partitions may have a list that points to more extended partitions. These additional "partitions" are not real partitions they are just extensions of the first extended partition (linked list)
         while has_extended {
             has_extended = false;
@@ -113,7 +115,6 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
                     continue;
                 }
 
-                println!("seeking to offset: {}", entry.offset_start);
                 // Our next extended partition is always relative from the first extended partition found in the Master Boot Record (MBR)
                 if let Err(err) = reader.seek(SeekFrom::Start(entry.offset_start)) {
                     error!("[calf] Could not seek to next extended partition: {err:?}");
@@ -121,19 +122,20 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
                 }
                 let mut mbr_buff = vec![0; sector_size];
                 if let Err(err) = reader.read(&mut mbr_buff) {
-                    println!("[calf] Could not read next extended {sector_size} bytes: {err:?}");
+                    error!("[calf] Could not read next extended {sector_size} bytes: {err:?}");
                     return Err(CalfError::ReadFile);
                 }
 
                 // We pass the root_offset to ensure any additional extended partition entries are properly setup to point to the absolute offset (root_offset + extended partition relative offset)
-                let (mut ext_boot, more_extended) = match parse_extended(&mbr_buff, root_offset) {
-                    Ok((_, result)) => result,
-                    Err(err) => {
-                        println!("[calf] Could not parse MBR first {sector_size} bytes: {err:?}");
-                        return Err(CalfError::ExtendedPartition);
-                    }
-                };
-                println!("{ext_boot:?}. more?: {more_extended}");
+                // We also need the current absolute offset of our current extended partition to ensure we can properly calculate the offsets for any non-extended partition types
+                let (mut ext_boot, more_extended) =
+                    match parse_extended(&mbr_buff, root_offset, entry.offset_start) {
+                        Ok((_, result)) => result,
+                        Err(err) => {
+                            error!("[calf] Could not parse MBR first {sector_size} bytes: {err:?}");
+                            return Err(CalfError::ExtendedPartition);
+                        }
+                    };
                 has_extended = more_extended;
 
                 if has_extended {

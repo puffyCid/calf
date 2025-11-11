@@ -1,16 +1,27 @@
-use log::{error, warn};
-use nom::bytes::complete::take;
-
 use super::features::Features;
-use crate::{
-    error::CalfError,
-    utils::nom_helper::{Endian, nom_unsigned_four_bytes},
-};
+use crate::{calf::CalfReader, error::CalfError, utils::read::read_bytes};
+use log::{error, warn};
+use nom::{bytes::complete::take, number::complete::be_u32};
 
 /// QCOW may have header extensions.
 /// All are optional
-struct Extensions {
-    features: Vec<Features>,
+#[derive(Debug)]
+pub struct Extensions {
+    pub features: Vec<Features>,
+}
+
+pub trait CalfExtensions<T: std::io::Seek + std::io::Read> {
+    fn ext(&mut self) -> Result<Extensions, CalfError>;
+}
+
+impl<T: std::io::Seek + std::io::Read> CalfExtensions<T> for CalfReader<T> {
+    /// Grab QCOW extensions
+    fn ext(&mut self) -> Result<Extensions, CalfError> {
+        let size = 512;
+        let offset = 112;
+        let bytes = read_bytes(offset, size, &mut self.fs)?;
+        Extensions::grab_extensions(&bytes)
+    }
 }
 
 impl Extensions {
@@ -35,9 +46,9 @@ impl Extensions {
         };
         let min_size = 9;
         while !input.len() >= min_size {
-            let (remaining, sig) = nom_unsigned_four_bytes(input, Endian::Be)?;
+            let (remaining, sig) = be_u32(input)?;
             // Does not include the sig and size bytes
-            let (remaining, size) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
+            let (remaining, size) = be_u32(remaining)?;
 
             let (remaining, feature_data) = take(size)(remaining)?;
             let padding_size = 8;
@@ -49,13 +60,13 @@ impl Extensions {
 
             match sig {
                 0x0 => break,
-                0xe2792aca => println!("backing file?"),
+                0xe2792aca => warn!("[calf] Have backing file extension"),
                 0x6803f857 => {
                     ext.features = Features::grab_features(feature_data).unwrap_or_default();
                 }
-                0x23852875 => println!("bitmaps extension"),
-                0x0537be77 => println!("encryption info"),
-                0x44415441 => println!("External data file name string"),
+                0x23852875 => warn!("[calf] Have bitmaps extension"),
+                0x0537be77 => warn!("[calf] Have encryption info"),
+                0x44415441 => warn!("[calf] Have External data file name string"),
                 _ => warn!("[calf] Unknown extension sig: {sig}"),
             }
         }

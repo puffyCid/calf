@@ -1,19 +1,17 @@
-use crate::{
-    bootsector::boot::{BootInfo, BootType, Partition, PartitionType},
-    utils::nom_helper::{
-        Endian, nom_unsigned_four_bytes, nom_unsigned_one_byte, nom_unsigned_two_bytes,
-    },
-};
+use crate::bootsector::boot::{BootInfo, BootType, Partition, PartitionType};
 use log::warn;
-use nom::{bytes::complete::take, number::streaming::le_u16};
+use nom::{
+    bytes::complete::take,
+    number::complete::{le_u8, le_u16, le_u32},
+};
 
 /// Parse the Master Boot Record (MBR) partition. We must be able to parse this in order to parse the rest of the filesystem
 pub(crate) fn parse_mbr(data: &[u8]) -> nom::IResult<&[u8], BootInfo> {
     let boot_binary_code: u16 = 440;
     let (input, _binary) = take(boot_binary_code)(data)?;
 
-    let (input, _disk_id) = nom_unsigned_four_bytes(input, Endian::Le)?;
-    let (mut input, _reserved) = nom_unsigned_two_bytes(input, Endian::Le)?;
+    let (input, _disk_id) = le_u32(input)?;
+    let (mut input, _reserved) = le_u16(input)?;
 
     let mut info = BootInfo {
         boot_type: BootType::MasterBootRecord,
@@ -37,20 +35,21 @@ pub(crate) fn parse_mbr(data: &[u8]) -> nom::IResult<&[u8], BootInfo> {
         }
         count += 1;
     }
-    let (input, _valid_bootsector) = nom_unsigned_two_bytes(input, Endian::Le)?;
+    let (input, _valid_bootsector) = le_u16(input)?;
     Ok((input, info))
 }
 
 /// Parse the partition data. It is very small, 16 bytes.
 fn parse_partition(data: &[u8]) -> nom::IResult<&[u8], (Partition, bool)> {
-    let (input, bootable) = nom_unsigned_one_byte(data, Endian::Le)?;
+    let (input, bootable) = le_u8(data)?;
     let sector_size: u8 = 3;
     let (input, sector_start) = take(sector_size)(input)?;
-    let (input, partition_type) = nom_unsigned_one_byte(input, Endian::Le)?;
+    let (input, partition_type) = le_u8(input)?;
     let (input, sector_last) = take(sector_size)(input)?;
 
-    let (input, first_logical_offset) = nom_unsigned_four_bytes(input, Endian::Le)?;
-    let (input, sectors_in_partition) = nom_unsigned_four_bytes(input, Endian::Le)?;
+    let (input, first_logical_offset) = le_u32(input)?;
+    let (input, sectors_in_partition) = le_u32(input)?;
+    // Safe to reference by slice index because we use nom to ensure our sector_last and sector_start length is at least 3 bytes in size
     let last_sector_offset =
         ((sector_last[0] as u32) << 16) + ((sector_last[1] as u32) << 8) + sector_last[2] as u32;
     let first_sector_offset =
@@ -77,7 +76,7 @@ fn parse_partition(data: &[u8]) -> nom::IResult<&[u8], (Partition, bool)> {
 }
 
 /// Determine the partition type, only a few are supported right now
-/// There are alot: https://en.wikipedia.org/wiki/Partition_type#List_of_partition_IDs
+/// There are a lot: <https://en.wikipedia.org/wiki/Partition_type#List_of_partition_IDs>
 fn get_partition_type(part: u8) -> PartitionType {
     match part {
         0x0 => PartitionType::None,
@@ -92,10 +91,11 @@ fn get_partition_type(part: u8) -> PartitionType {
     }
 }
 
-/// Parse the extended partitions.  https://en.wikipedia.org/wiki/Extended_boot_record
+/// Parse the extended partitions: <https://en.wikipedia.org/wiki/Extended_boot_record>
 pub(crate) fn parse_extended(
     data: &[u8],
     root_offset: u64,
+    extended_offset: u64,
 ) -> nom::IResult<&[u8], (Vec<Partition>, bool)> {
     let mut parts = Vec::new();
 
@@ -104,17 +104,20 @@ pub(crate) fn parse_extended(
     let (input, _) = take(unused)(data)?;
     let entry_size: u8 = 16;
     let (input, first_entry) = take(entry_size)(input)?;
-    let (_, mut first_part) = parse_partition(first_entry)?;
+    let (_, (mut first_part, _)) = parse_partition(first_entry)?;
 
     let mut has_extened = false;
     // The first entry in an extended partition should never? be extended Type. But check just in case
-    if first_part.0.partition_type == PartitionType::Extended {
+    if first_part.partition_type == PartitionType::Extended {
+        warn!(
+            "[calf] The first extended partition entry is an extended partition type. This should not happen? Got: {first_part:?}"
+        );
         has_extened = true;
-        first_part.0.offset_start += root_offset;
+        first_part.offset_start += root_offset;
     }
 
     let (input, second_entry) = take(entry_size)(input)?;
-    let (_, mut part) = parse_partition(second_entry)?;
+    let (_, (mut extended_part, _)) = parse_partition(second_entry)?;
 
     // Extended partition only has two partitions. But technically allows 4?
     let (input, _third_entry) = take(entry_size)(input)?;
@@ -126,16 +129,21 @@ pub(crate) fn parse_extended(
         warn!("[calf] Did not get expected extended signature. Expected 0xAA55, got: {sig}");
     }
 
-    if part.0.partition_type == PartitionType::Extended {
+    if extended_part.partition_type == PartitionType::Extended {
         has_extened = true;
-        part.0.offset_start += root_offset;
-        // First entry offset combines the extended partition offset and the root offset
-        //first_part.0.offset_start += part.0.offset_start;
-        //  first_part.0.offset_start *= 512;
     }
-    parts.push(first_part.0);
 
-    parts.push(part.0);
+    // The last extended partition value will have None partition type
+    if has_extened || extended_part.partition_type == PartitionType::None {
+        // Add root offset to ensure we are using the absolute offset to the partition
+        extended_part.offset_start += root_offset;
+        // First entry offset combines the current extended partition offset and the relative offset
+        first_part.offset_start =
+            (first_part.first_logical_offset as u64 + extended_offset / 512) * 512;
+    }
+    parts.push(first_part);
+
+    parts.push(extended_part);
     Ok((input, (parts, has_extened)))
 }
 
@@ -152,7 +160,7 @@ mod tests {
         let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
         test_location.push("tests/test_data/mbr/extended_partition.raw");
         let bytes = read(test_location.to_str().unwrap()).unwrap();
-        let (_, (results, has_extended)) = parse_extended(&bytes, 0).unwrap();
+        let (_, (results, has_extended)) = parse_extended(&bytes, 0, 0).unwrap();
         assert!(has_extended);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].partition_type, PartitionType::Linux);
@@ -237,12 +245,12 @@ mod tests {
             40, 167, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
             0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 85, 170,
         ];
-        let (_, (results, has_extended)) = parse_extended(&test, 832568320).unwrap();
+        let (_, (results, has_extended)) = parse_extended(&test, 832568320, 0).unwrap();
         assert!(!has_extended);
         assert_eq!(results.len(), 2);
         assert_eq!(results[0].partition_type, PartitionType::LinuxLvm);
         assert_eq!(results[0].offset_start, 1024);
-        assert_eq!(results[1].offset_start, 0);
+        assert_eq!(results[1].offset_start, 832568320);
         assert_eq!(results[1].partition_type, PartitionType::None);
     }
 }

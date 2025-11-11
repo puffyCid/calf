@@ -1,14 +1,6 @@
-use crate::{
-    calf::CalfReader,
-    error::CalfError,
-    utils::{
-        nom_helper::{
-            Endian, nom_unsigned_eight_bytes, nom_unsigned_four_bytes, nom_unsigned_one_byte,
-        },
-        read::read_bytes,
-    },
-};
+use crate::{calf::CalfReader, error::CalfError, utils::read::read_bytes};
 use log::error;
+use nom::number::complete::{be_u8, be_u32, be_u64};
 
 /// Header info for QCOW file. Only Version 3 supported
 /// Header docs: `https://github.com/qemu/qemu/blob/master/docs/interop/qcow2.txt`
@@ -83,7 +75,7 @@ impl<T: std::io::Seek + std::io::Read> CalfHeader<T> for CalfReader<T> {
     /// Grab QCOW header info
     fn header(&mut self) -> Result<Header, CalfError> {
         let size = 112;
-        let bytes = read_bytes(&0, &size, &mut self.fs)?;
+        let bytes = read_bytes(0, size, &mut self.fs)?;
         let header = match Header::get_header(&bytes) {
             Ok((_, results)) => results,
             Err(err) => {
@@ -98,34 +90,34 @@ impl<T: std::io::Seek + std::io::Read> CalfHeader<T> for CalfReader<T> {
 impl Header {
     /// Parse the QCOW header data
     fn get_header(data: &[u8]) -> nom::IResult<&[u8], Header> {
-        let (remaining, sig) = nom_unsigned_four_bytes(data, Endian::Be)?;
-        let (remaining, version) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
-        let (remaining, backing_filename_offset) = nom_unsigned_eight_bytes(remaining, Endian::Be)?;
-        let (remaining, backing_filename_size) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
+        let (remaining, sig) = be_u32(data)?;
+        let (remaining, version) = be_u32(remaining)?;
+        let (remaining, backing_filename_offset) = be_u64(remaining)?;
+        let (remaining, backing_filename_size) = be_u32(remaining)?;
 
-        let (remaining, cluster_block_bits_count) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
-        let (remaining, size) = nom_unsigned_eight_bytes(remaining, Endian::Be)?;
-        let (remaining, encrypt_method) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
+        let (remaining, cluster_block_bits_count) = be_u32(remaining)?;
+        let (remaining, size) = be_u64(remaining)?;
+        let (remaining, encrypt_method) = be_u32(remaining)?;
 
-        let (remaining, level_one_table_ref) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
-        let (remaining, level_one_table_offset) = nom_unsigned_eight_bytes(remaining, Endian::Be)?;
-        let (remaining, ref_table_offset_count) = nom_unsigned_eight_bytes(remaining, Endian::Be)?;
-        let (remaining, ref_table_cluster_count) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
+        let (remaining, level_one_table_ref) = be_u32(remaining)?;
+        let (remaining, level_one_table_offset) = be_u64(remaining)?;
+        let (remaining, ref_table_offset_count) = be_u64(remaining)?;
+        let (remaining, ref_table_cluster_count) = be_u32(remaining)?;
 
-        let (remaining, snapshots_count) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
-        let (remaining, snapshot_offset) = nom_unsigned_eight_bytes(remaining, Endian::Be)?;
+        let (remaining, snapshots_count) = be_u32(remaining)?;
+        let (remaining, snapshot_offset) = be_u64(remaining)?;
 
-        let (remaining, incompat_flags) = nom_unsigned_eight_bytes(remaining, Endian::Be)?;
-        let (remaining, compat_flags) = nom_unsigned_eight_bytes(remaining, Endian::Be)?;
-        let (remaining, auto_clear_flags) = nom_unsigned_eight_bytes(remaining, Endian::Be)?;
+        let (remaining, incompat_flags) = be_u64(remaining)?;
+        let (remaining, compat_flags) = be_u64(remaining)?;
+        let (remaining, auto_clear_flags) = be_u64(remaining)?;
 
-        let (remaining, ref_count_order) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
-        let (remaining, header_size) = nom_unsigned_four_bytes(remaining, Endian::Be)?;
+        let (remaining, ref_count_order) = be_u32(remaining)?;
+        let (remaining, header_size) = be_u32(remaining)?;
 
         let is_compressed = 112;
 
         let (remaining, compression_method) = if header_size == is_compressed {
-            let (remaining, compress_data) = nom_unsigned_one_byte(remaining, Endian::Be)?;
+            let (remaining, compress_data) = be_u8(remaining)?;
             if compress_data == 0 {
                 (remaining, Compression::Zlib)
             } else if compress_data == 1 {
@@ -146,7 +138,7 @@ impl Header {
             cluster_block_bits_count,
             size,
             encryption_method: Header::get_encrypt(&encrypt_method),
-            level_one_table_ref,
+            level_one_table_ref: level_one_table_ref * 8,
             level_one_table_offset,
             ref_table_offset_count,
             ref_table_cluster_count,
@@ -239,7 +231,7 @@ mod tests {
 
         assert_eq!(result.size, 85899345920);
         assert_eq!(result.cluster_block_bits_count, 16);
-        assert_eq!(result.level_one_table_ref, 160);
+        assert_eq!(result.level_one_table_ref, 1280);
         assert_eq!(result.level_one_table_offset, 262144);
         assert_eq!(result.sig, 1363560955);
         assert_eq!(result.compression_method, Compression::Zlib);

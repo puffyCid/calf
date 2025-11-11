@@ -8,7 +8,7 @@ use crate::{
         level::{Level, read_level},
     },
 };
-use log::error;
+use log::{debug, error};
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 
 pub struct OsReader<'qcow, 'reader, T>
@@ -16,7 +16,7 @@ where
     T: std::io::Seek + std::io::Read,
 {
     qcow: &'qcow QcowInfo,
-    reader: &'reader mut BufReader<T>,
+    pub(crate) reader: &'reader mut BufReader<T>,
     position: u64,
     cluster_bits: u32,
     cluster_size: u64,
@@ -128,11 +128,11 @@ impl<'a, 'qcow, T: std::io::Seek + std::io::Read> OsReader<'a, 'qcow, T> {
             self.level2_key = level2_key;
             self.refresh_level1_cache()?;
 
-            if self.level1_cache.offset != 0 {
-                if let Some(value) = self.level2_table_cache.get(level2_index as usize) {
-                    self.level2_cache = value.clone();
-                    self.level2_key = level2_key;
-                }
+            if self.level1_cache.offset != 0
+                && let Some(value) = self.level2_table_cache.get(level2_index as usize)
+            {
+                self.level2_cache = value.clone();
+                self.level2_key = level2_key;
             }
         }
 
@@ -143,11 +143,14 @@ impl<'a, 'qcow, T: std::io::Seek + std::io::Read> OsReader<'a, 'qcow, T> {
             ));
         }
 
-        println!("level 2 cache: {:?}. Level 1 cache: {:?}", self.level2_cache, self.level1_cache);
+        debug!(
+            "[calf] level 2 cache: {:?}. Level 1 cache: {:?}",
+            self.level2_cache, self.level1_cache
+        );
         self.cluster_bytes = read_cluster(
             self.reader,
-            &self.level2_cache.offset,
-            &self.cluster_size,
+            self.level2_cache.offset,
+            self.cluster_size,
             &self.qcow.header.compression_method,
             &self.level2_cache.is_compressed,
         )?;
@@ -161,17 +164,15 @@ where
     T: std::io::Seek + std::io::Read,
 {
     fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
-        println!("offset: {}", self.position);
         match self.refresh_level2_cache() {
             Ok(()) => {
-                println!("here?");
                 let position_in_cluster = self.position % self.cluster_size;
                 let cluster_bytes_remaining = self.cluster_size - position_in_cluster;
 
                 let read_len = u64::min(cluster_bytes_remaining, buf.len() as u64);
                 let read_end = position_in_cluster + read_len;
                 let pos_in_cluster = position_in_cluster as usize;
-
+                // We set read_len to lowest value comparing cluster_bytes_remaining and buf.len()
                 buf[..read_len as usize]
                     .copy_from_slice(&self.cluster_bytes[pos_in_cluster..read_end as usize]);
 
@@ -216,11 +217,7 @@ where
                     .position
                     .try_into()
                     .map_or_else(
-                        |_| {
-                            ((self.position as i128) + (relative_position as i128))
-                                .try_into()
-                                .unwrap()
-                        },
+                        |_| self.position as i64 + relative_position,
                         |pos: i64| pos + relative_position,
                     )
                     .try_into()

@@ -1,4 +1,4 @@
 pub(crate) mod cluster;
-mod extensions;
+pub(crate) mod extensions;
 pub mod header;
 pub mod level;

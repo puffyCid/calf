@@ -2,6 +2,7 @@ use crate::{
     bootsector::boot::{BootInfo, boot_info},
     error::CalfError,
     format::{
+        extensions::extension::{CalfExtensions, Extensions},
         header::{CalfHeader, Compression, Encryption, Header},
         level::{CalfLevel, Level},
     },
@@ -45,6 +46,8 @@ pub trait CalfReaderAction<'qcow, 'reader, T: std::io::Seek + std::io::Read> {
         &mut self,
         reader: &mut OsReader<'qcow, 'reader, T>,
     ) -> Result<BootInfo, CalfError>;
+    /// List extensions associated with the QCOW file
+    fn extensions(&mut self) -> Result<Extensions, CalfError>;
 }
 
 impl<'qcow, 'reader, T: std::io::Seek + std::io::Read> CalfReaderAction<'qcow, 'reader, T>
@@ -80,10 +83,7 @@ impl<'qcow, 'reader, T: std::io::Seek + std::io::Read> CalfReaderAction<'qcow, '
 
     fn level1_entries(&mut self) -> Result<Vec<Level>, CalfError> {
         let header = self.header()?;
-        self.levels(
-            &header.level_one_table_offset,
-            &(header.level_one_table_ref * 8),
-        )
+        self.levels(header.level_one_table_offset, header.level_one_table_ref)
     }
 
     fn os_reader(
@@ -98,6 +98,10 @@ impl<'qcow, 'reader, T: std::io::Seek + std::io::Read> CalfReaderAction<'qcow, '
         reader: &mut OsReader<'qcow, 'reader, T>,
     ) -> Result<BootInfo, CalfError> {
         boot_info(reader)
+    }
+
+    fn extensions(&mut self) -> Result<Extensions, CalfError> {
+        self.ext()
     }
 }
 
@@ -165,6 +169,7 @@ mod tests {
         assert_eq!(calf.version().unwrap(), 3);
         assert_eq!(calf.compression().unwrap(), Compression::Zlib);
         assert_eq!(calf.encryption().unwrap(), Encryption::None);
+        assert_eq!(calf.extensions().unwrap().features.len(), 8);
 
         assert!(calf.size().unwrap() > 10);
         let info = QcowInfo {
@@ -189,9 +194,9 @@ mod tests {
         assert_eq!(boot.partitions[10].partition_type, PartitionType::Linux);
         assert_eq!(boot.partitions[11].partition_type, PartitionType::None);
 
-        assert_eq!(boot.partitions[4].offset_start, 1024);
+        assert_eq!(boot.partitions[4].offset_start, 7535067136);
         assert_eq!(boot.partitions[0].offset_start, 1048576);
-        assert_eq!(boot.partitions[10].offset_start, 92160);
+        assert_eq!(boot.partitions[10].offset_start, 11387535360);
 
         assert_eq!(boot.partitions[1].offset_start, 7535066112);
         assert_eq!(boot.partitions[5].offset_start, 9747348480);
