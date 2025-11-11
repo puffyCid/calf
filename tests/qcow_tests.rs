@@ -86,8 +86,8 @@ fn test_debian() {
         let os_reader = calf.os_reader(&info).unwrap();
 
         let test = BufReader::new(os_reader);
-
         let mut ext4_reader = Ext4Reader::new(test, 4096, entry.offset_start).unwrap();
+
         let block = ext4_reader.superblock().unwrap();
         if block.filesystem_id == "0b43d8e6-e877-460f-a713-ce9d80ec6904" {
             assert_eq!(block.last_mount_path, "/home");

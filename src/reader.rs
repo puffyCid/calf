@@ -30,7 +30,7 @@ where
 }
 
 impl QcowInfo {
-    /// Create a reader that can bytes from OS guest inside the QCOW file
+    /// Create a reader that can read bytes from OS guest inside the QCOW file
     pub fn new<'qcow, 'reader, T: io::Seek + io::Read>(
         &'qcow self,
         reader: &'reader mut BufReader<T>,
@@ -69,25 +69,7 @@ impl QcowInfo {
 }
 
 impl<'a, 'qcow, T: std::io::Seek + std::io::Read> OsReader<'a, 'qcow, T> {
-    pub fn guest_position(&self) -> u64 {
-        self.position
-    }
-
-    pub fn get_cluster_size(&mut self) -> u64 {
-        self.cluster_size = 1 << self.qcow.header.cluster_block_bits_count;
-        self.cluster_size
-    }
-
-    pub fn get_cluster_bits(&mut self) -> u32 {
-        self.cluster_bits = self.qcow.header.cluster_block_bits_count;
-        self.cluster_bits
-    }
-
-    pub fn get_os_size(&mut self) -> u64 {
-        self.os_size = self.qcow.header.size;
-        self.os_size
-    }
-
+    /// Determine OS boot information
     pub fn get_boot_info(&mut self) -> Result<BootInfo, CalfError> {
         boot_info(self)
     }

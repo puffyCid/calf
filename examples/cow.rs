@@ -51,8 +51,9 @@ fn qcow_info(path: &str) {
         header: calf.header().unwrap(),
         level1_table: calf.level1_entries().unwrap(),
     };
+    println!("OS size is {} bytes", calf.size().unwrap());
+
     let mut os_reader = calf.os_reader(&info).unwrap();
-    println!("OS size is {} bytes", os_reader.get_os_size());
     let boot_info = os_reader.get_boot_info().unwrap();
     println!("Boot info: {boot_info:?}");
 
