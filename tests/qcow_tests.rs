@@ -164,7 +164,10 @@ fn walk_dir<T: std::io::Seek + std::io::Read>(
         if test_path.contains("wtmp.db") {
             assert_eq!(test_path, "/var/lib/wtmpdb/wtmp.db");
         } else if test_path.contains("emacsen-ispell-default.el") {
-            assert_eq!(test_path, "/var/cache/dictionaries-common/emacsen-ispell-default.el")
+            assert_eq!(
+                test_path,
+                "/var/cache/dictionaries-common/emacsen-ispell-default.el"
+            )
         }
 
         let stat = reader.stat(entry.inode).unwrap();
