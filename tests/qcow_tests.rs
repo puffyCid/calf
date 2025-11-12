@@ -5,7 +5,7 @@ use calf::{
 };
 use ext4_fs::{
     extfs::{Ext4Reader, Ext4ReaderAction},
-    structs::{Ext4Hash, FileType},
+    structs::{Ext4Hash, FileInfo, FileType},
 };
 use std::{
     fs::File,
@@ -120,10 +120,60 @@ fn test_debian() {
             assert_eq!(block.last_mount_path, "/tmp");
         } else if block.filesystem_id == "b57a2bc2-596d-4968-9699-53cdafb47b73" {
             assert_eq!(block.last_mount_path, "/var");
+            let root = ext4_reader.root().unwrap();
+            let mut cache = Vec::new();
+            cache.push(root.name.trim_end_matches('/').to_string());
+
+            walk_dir(&mut ext4_reader, &mut cache, &root);
         } else if block.filesystem_id == "be966208-a1fb-412b-b686-e5c3bd6ee0c5" {
             assert_eq!(block.last_mount_path, "/");
         } else {
             panic!("Unknown block info: {block:?} for entry: {entry:?}");
+        }
+    }
+}
+
+fn walk_dir<T: std::io::Seek + std::io::Read>(
+    reader: &mut Ext4Reader<T>,
+    cache: &mut Vec<String>,
+    info: &FileInfo,
+) {
+    for entry in &info.children {
+        if entry.name == "." || entry.name == ".." {
+            continue;
+        }
+
+        if entry.file_type == FileType::Directory
+            && entry.name != "."
+            && entry.name != ".."
+            && entry.inode != 2
+        {
+            let child_info = reader.read_dir(entry.inode).unwrap();
+            cache.push(child_info.name.trim_matches('/').to_string());
+
+            walk_dir(reader, cache, &child_info);
+            cache.pop();
+            continue;
+        }
+        println!(
+            "Current file path: {}/{}",
+            cache.join("/").replace("//", "/"),
+            entry.name
+        );
+        let test_path = format!("{}/{}", cache.join("/"), entry.name);
+        if test_path.contains("wtmp.db") {
+            assert_eq!(test_path, "/var/lib/wtmpdb/wtmp.db");
+        } else if test_path.contains("emacsen-ispell-default.el") {
+            assert_eq!(test_path, "/var/cache/dictionaries-common/emacsen-ispell-default.el")
+        }
+
+        let stat = reader.stat(entry.inode).unwrap();
+        if entry.file_type == FileType::File && stat.size > 15 {
+            // Read 15 bytes of every file
+            let mut byte_reader = reader.reader(entry.inode).unwrap();
+            let mut buf = [0; 15];
+            byte_reader.read(&mut buf).unwrap();
+            assert_ne!(buf, [0; 15]);
         }
     }
 }
