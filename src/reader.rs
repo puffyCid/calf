@@ -215,3 +215,86 @@ where
         Ok(self.position)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::{
+        calf::{CalfReader, CalfReaderAction, QcowInfo},
+        format::header::CalfHeader,
+    };
+    use std::{
+        fs::File,
+        i64,
+        io::{BufReader, Seek, SeekFrom},
+        path::PathBuf,
+    };
+
+    #[test]
+    fn test_reader() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/qcow/debian13-lvm.qcow");
+
+        let reader = File::open(test_location.to_str().unwrap()).unwrap();
+        let buf = BufReader::new(reader);
+
+        let mut calf = CalfReader { fs: buf };
+
+        let info = QcowInfo {
+            header: calf.header().unwrap(),
+            level1_table: calf.level1_entries().unwrap(),
+        };
+        let mut os_reader = calf.os_reader(&info).unwrap();
+        let status = os_reader.seek(SeekFrom::End(-20)).unwrap();
+        assert_eq!(status, 6442450924);
+
+        os_reader.seek(SeekFrom::Start(300)).unwrap();
+        let status = os_reader.seek(SeekFrom::Current(-299)).unwrap();
+        assert_eq!(status, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidInput")]
+    fn test_bad_reader() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/qcow/debian13-lvm.qcow");
+
+        let reader = File::open(test_location.to_str().unwrap()).unwrap();
+        let buf = BufReader::new(reader);
+
+        let mut calf = CalfReader { fs: buf };
+
+        let info = QcowInfo {
+            header: calf.header().unwrap(),
+            level1_table: calf.level1_entries().unwrap(),
+        };
+        let mut os_reader = calf.os_reader(&info).unwrap();
+        let status = os_reader.seek(SeekFrom::End(-i64::MAX)).unwrap();
+        assert_eq!(status, 6442450924);
+
+        os_reader.seek(SeekFrom::Start(300)).unwrap();
+        let status = os_reader.seek(SeekFrom::Current(-299)).unwrap();
+        assert_eq!(status, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "InvalidInput")]
+    fn test_bad_seek() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/qcow/debian13-lvm.qcow");
+
+        let reader = File::open(test_location.to_str().unwrap()).unwrap();
+        let buf = BufReader::new(reader);
+
+        let mut calf = CalfReader { fs: buf };
+
+        let info = QcowInfo {
+            header: calf.header().unwrap(),
+            level1_table: calf.level1_entries().unwrap(),
+        };
+        let mut os_reader = calf.os_reader(&info).unwrap();
+
+        os_reader.seek(SeekFrom::Start(300)).unwrap();
+        let status = os_reader.seek(SeekFrom::Current(-i64::MAX)).unwrap();
+        assert_eq!(status, 1);
+    }
+}
