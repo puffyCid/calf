@@ -12,3 +12,4 @@ nom = "8.0.0"
 log = "0.4.29"
 base64 = "0.22.1"
 ext4-fs = "0.1.2"
+uuid = { version = "1.21.0", features = ["v4"] }
