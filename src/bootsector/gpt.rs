@@ -12,6 +12,7 @@ use nom::{
  *    - dissect just has a hard coded list. Seems reasonable
  *    - Python script to create? Or export table from wikipedia?
  * 4. Done?
+ * 5. compare with bootsector crate
  */
 
 /// Parse the GPT partition data
