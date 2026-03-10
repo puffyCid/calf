@@ -10,6 +10,7 @@ pub enum CalfError {
     ReadFile,
     ParseMbr,
     ExtendedPartition,
+    ParseGpt,
 }
 
 impl std::error::Error for CalfError {}
@@ -25,6 +26,7 @@ impl fmt::Display for CalfError {
             CalfError::ReadFile => write!(f, "Failed to read bytes from QCOW file"),
             CalfError::ParseMbr => write!(f, "Failed to parse MBR bytes"),
             CalfError::ExtendedPartition => write!(f, "Failed to parse extended partition info"),
+            CalfError::ParseGpt => write!(f, "Failed to parse GPT bytes"),
         }
     }
 }

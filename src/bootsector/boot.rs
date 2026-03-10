@@ -1,5 +1,8 @@
 use crate::{
-    bootsector::mbr::{parse_extended, parse_mbr},
+    bootsector::{
+        gpt::{GuidNames, parse_gpt},
+        mbr::{parse_extended, parse_mbr},
+    },
     error::CalfError,
     reader::OsReader,
 };
@@ -10,6 +13,7 @@ use std::io::{Read, Seek, SeekFrom};
 pub struct BootInfo {
     pub boot_type: BootType,
     pub partitions: Vec<Partition>,
+    pub gpt_partitions: Option<Vec<GptPartition>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,6 +51,17 @@ pub enum PartitionType {
     None,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct GptPartition {
+    pub partition_guid: String,
+    pub guid: String,
+    pub platform: GuidNames,
+    pub first_lba: u64,
+    pub last_lba: u64,
+    pub attributes: u64,
+    pub partition_name: String,
+}
+
 /// Get the bootsector info from the QCOW file
 pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     reader: &mut OsReader<'qcow, 'reader, T>,
@@ -71,6 +86,11 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
             return Err(CalfError::ParseMbr);
         }
     };
+
+    if boot.boot_type == BootType::GuidPartitionTable {
+        boot.gpt_partitions = Some(gpt_info(reader)?);
+        return Ok(boot);
+    }
 
     let mut extra_parts = Vec::new();
     let mut root_offset;
@@ -148,6 +168,38 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
         }
     }
     boot.partitions.append(&mut extra_parts);
+
+    Ok(boot)
+}
+
+fn gpt_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
+    reader: &mut OsReader<'qcow, 'reader, T>,
+) -> Result<Vec<GptPartition>, CalfError> {
+    if let Err(err) = reader.seek(SeekFrom::Start(0)) {
+        error!("[calf] Could not seek to start for GPT boot info: {err:?}");
+        return Err(CalfError::SeekFile);
+    }
+
+    // 512 seems to be the most common
+    let sector_size = 512;
+    let gpt_size = 128;
+    // GPT most often has limit of 128 partitions each 128 bytes in size
+    // Header is most often 512 bytes (one sector)
+    // Boot code is also 512 bytes (one sector)
+    let size = gpt_size * gpt_size + sector_size + sector_size;
+    let mut gpt_buff = vec![0; size];
+    if let Err(err) = reader.read(&mut gpt_buff) {
+        error!("[calf] Could not read GPT first {size} bytes: {err:?}");
+        return Err(CalfError::ReadFile);
+    }
+
+    let boot = match parse_gpt(&gpt_buff) {
+        Ok((_, result)) => result,
+        Err(err) => {
+            error!("[calf] Could not parse GPT {sector_size} bytes: {err:?}");
+            return Err(CalfError::ParseGpt);
+        }
+    };
 
     Ok(boot)
 }
