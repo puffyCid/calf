@@ -4,12 +4,7 @@ use calf::{
     format::{header::CalfHeader, level::CalfLevel},
 };
 use ext4_fs::extfs::{Ext4Reader, Ext4ReaderAction};
-use std::{
-    env,
-    fs::File,
-    io::{BufReader, Read, Seek, SeekFrom},
-    path::Path,
-};
+use std::{env, fs::File, io::BufReader, path::Path};
 
 fn main() {
     println!("Lets get some basic QCOW info!\n");

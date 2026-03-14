@@ -78,6 +78,7 @@ pub enum GuidNames {
     Illumos,
     Vmware,
     OpenBsd,
+    Swap,
     #[default]
     Unknown,
 }
@@ -107,6 +108,7 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
         }
     };
 
+    // Have GPT boot sector. Extract info from GPT partitions
     if boot.boot_type == BootType::GuidPartitionTable {
         boot.gpt_partitions = Some(gpt_info(reader)?);
         return Ok(boot);
@@ -192,6 +194,7 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     Ok(boot)
 }
 
+/// Parse GPT partition info
 fn gpt_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     reader: &mut OsReader<'qcow, 'reader, T>,
 ) -> Result<Vec<GptPartition>, CalfError> {

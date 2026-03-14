@@ -86,7 +86,7 @@ fn bytes_to_utf16_string(data: &[u8], adjust: bool) -> Result<String, FromUtf16E
 
 #[derive(PartialEq)]
 pub(crate) enum Endian {
-    Big,
+    _Big,
     Little,
 }
 

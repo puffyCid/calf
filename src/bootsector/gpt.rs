@@ -2,17 +2,13 @@ use crate::{
     bootsector::boot::{GptPartition, GuidNames},
     utils::strings::{Endian, extract_guid, extract_utf16_string},
 };
+use log::error;
 use nom::{
     bytes::complete::take,
+    error::ErrorKind,
     number::complete::{le_u32, le_u64},
 };
 use std::collections::HashMap;
-
-/*
- * TODO:
- * 2. More Tests
- * 5. compare with bootsector crate
- */
 
 /// Parse the GPT partition data
 pub(crate) fn parse_gpt(data: &[u8]) -> nom::IResult<&[u8], Vec<GptPartition>> {
@@ -23,46 +19,41 @@ pub(crate) fn parse_gpt(data: &[u8]) -> nom::IResult<&[u8], Vec<GptPartition>> {
     // Should be "EFI PART"
     let sig = 6075990659671082565;
     if signature != sig {
-        panic!("not good!");
+        error!("[calf] Got bad GPT header wanted '6075990659671082565' got: {signature} ");
+        return Err(nom::Err::Failure(nom::error::Error::new(
+            &[],
+            ErrorKind::Fail,
+        )));
     }
 
     let (input, _revision) = le_u32(input)?;
-    let (input, header_size) = le_u32(input)?;
+    let (input, _header_size) = le_u32(input)?;
     let (input, _crc_hash) = le_u32(input)?;
     let (input, _reserved) = le_u32(input)?;
 
     // LBA - logical based address
-    let (input, current_logical_based_address) = le_u64(input)?;
-    let (input, backup_lba) = le_u64(input)?;
-    let (input, first_usable_partition) = le_u64(input)?;
-    let (input, secondary_partition_table) = le_u64(input)?;
+    let (input, _current_logical_based_address) = le_u64(input)?;
+    let (input, _backup_lba) = le_u64(input)?;
+    let (input, _first_usable_partition) = le_u64(input)?;
+    let (input, _secondary_partition_table) = le_u64(input)?;
 
     let guid_size: u8 = 16;
     let (input, guid_bytes) = take(guid_size)(input)?;
-    let guid = extract_guid(guid_bytes, Endian::Little);
+    let _guid = extract_guid(guid_bytes, Endian::Little);
 
-    let (input, start_lba_array_entries) = le_u64(input)?;
+    let (input, _start_lba_array_entries) = le_u64(input)?;
     let (input, number_partitions_in_array) = le_u32(input)?;
     let (input, single_partition_size) = le_u32(input)?;
     let (input, _crc_partitions_hash) = le_u32(input)?;
+
     // Remaining bytes are reserved. Should be all zeros
     // If the sector size is not 512. This would be larger
     let reserved: u16 = 420;
     let (mut input, _) = take(reserved)(input)?;
 
-    println!("{guid}. {header_size}");
-    println!(
-        "array entries: {start_lba_array_entries}. Number partitions in array: {number_partitions_in_array}"
-    );
-    println!("partition size: {single_partition_size}");
-    println!("first partition for data: {first_usable_partition}");
-    println!("secondary table: {secondary_partition_table}");
-    println!("current LBA: {current_logical_based_address}");
-
-    let limit = 128;
     let mut count = 0;
     let mut partitions = Vec::new();
-    while input.len() >= limit && count < limit {
+    while input.len() >= single_partition_size as usize && count < number_partitions_in_array {
         let (remaining, entry) = parse_gpt_entry(input)?;
         input = remaining;
         count += 1;
@@ -77,19 +68,7 @@ pub(crate) fn parse_gpt(data: &[u8]) -> nom::IResult<&[u8], Vec<GptPartition>> {
     Ok((input, partitions))
 }
 
-enum Attributes {
-    PlatformRequired,
-    EfiIgnore,
-    LegacyBios,
-    WindowsReadOnly,
-    WindowsShadowCopy,
-    WindowsHidden,
-    WindowsNoDriveLetter,
-    BootFlag,
-    ChromeOsBoot,
-    ChromeOsNotBootable,
-}
-
+/// Parse the GPT entry value. Typically 128 bytes in size and max number of entries is typically 128
 fn parse_gpt_entry(data: &[u8]) -> nom::IResult<&[u8], GptPartition> {
     let guid_size: u8 = 16;
     let (input, guid_bytes) = take(guid_size)(data)?;
@@ -122,7 +101,7 @@ fn parse_gpt_entry(data: &[u8]) -> nom::IResult<&[u8], GptPartition> {
     Ok((input, entry))
 }
 
-/// Mappings of popular GUID partitions. From: https://en.wikipedia.org/wiki/GUID_Partition_Table
+/// Mappings of popular GUID partitions. From: <https://en.wikipedia.org/wiki/GUID_Partition_Table>
 /// CSV under tools folder contains list
 fn guid_mapping() -> HashMap<String, GuidNames> {
     HashMap::from([
@@ -132,7 +111,7 @@ fn guid_mapping() -> HashMap<String, GuidNames> {
         ),
         (
             String::from("0657FD6D-A4AB-43C4-84E5-0933C84B4F4F"),
-            GuidNames::Linux,
+            GuidNames::Swap,
         ),
         (
             String::from("08A7ACEA-624C-4A20-91E8-6E0FA67D23F9"),
@@ -895,7 +874,7 @@ fn guid_mapping() -> HashMap<String, GuidNames> {
 
 #[cfg(test)]
 mod tests {
-    use crate::bootsector::gpt::{GuidNames, parse_gpt, parse_gpt_entry};
+    use crate::bootsector::gpt::{GuidNames, guid_mapping, parse_gpt, parse_gpt_entry};
     use std::{fs::read, path::PathBuf};
 
     #[test]
@@ -905,6 +884,7 @@ mod tests {
         let bytes = read(test_location.to_str().unwrap()).unwrap();
 
         let (_, gpt) = parse_gpt(&bytes).unwrap();
+        assert!(gpt.is_empty());
     }
 
     #[test]
@@ -949,5 +929,14 @@ mod tests {
         assert_eq!(result.last_lba, 209713151);
         assert_eq!(result.platform, GuidNames::Linux);
         assert_eq!(result.guid, "809d27a2-0714-4981-a663-3c1ceb8ce517");
+    }
+
+    #[test]
+    fn test_guid_mappings() {
+        let maps = guid_mapping();
+        assert_eq!(
+            maps.get("41092B05-9FC8-4523-994F-2DEF0408B176").unwrap(),
+            &GuidNames::Linux
+        );
     }
 }
