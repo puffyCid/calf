@@ -85,7 +85,7 @@ impl<'qcow, 'reader, T: std::io::Seek + std::io::Read> CalfReaderAction<'qcow, '
         &'reader mut self,
         info: &'qcow QcowInfo,
     ) -> Result<OsReader<'qcow, 'reader, T>, CalfError> {
-        QcowInfo::new(info, &mut self.fs)
+        QcowInfo::os_read(info, &mut self.fs)
     }
 
     fn extensions(&mut self) -> Result<Extensions, CalfError> {

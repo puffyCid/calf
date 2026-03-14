@@ -50,7 +50,7 @@ jobs:
           save-if: false
 
       - name: Download test files
-        run: cd tests/test_data/qcow && wget -O debian13-lvm.qcow https://github.com/puffyCid/calf/releases/download/v0.0.0/debian13-lvm.qcow && wget -O debian13.qcow https://github.com/puffyCid/calf/releases/download/v0.0.0/debian13.qcow && cargo test --release
+        run: cd tests/test_data/qcow && wget -O debian13-lvm.qcow https://github.com/puffyCid/calf/releases/download/v0.0.0/debian13-lvm.qcow && wget -O debian13.qcow https://github.com/puffyCid/calf/releases/download/v0.0.0/debian13.qcow && wget -O centos.qcow https://github.com/puffyCid/calf/releases/download/v0.0.0/centos.qcow && cargo test --release
 
       - name: Generate code coverage
         run: cargo llvm-cov --release --lcov --output-path lcov.info

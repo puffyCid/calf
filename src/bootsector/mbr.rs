@@ -16,6 +16,7 @@ pub(crate) fn parse_mbr(data: &[u8]) -> nom::IResult<&[u8], BootInfo> {
     let mut info = BootInfo {
         boot_type: BootType::MasterBootRecord,
         partitions: Vec::new(),
+        gpt_partitions: None,
     };
 
     let partition_size: u8 = 16;

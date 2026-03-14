@@ -1,5 +1,8 @@
 use crate::{
-    bootsector::mbr::{parse_extended, parse_mbr},
+    bootsector::{
+        gpt::parse_gpt,
+        mbr::{parse_extended, parse_mbr},
+    },
     error::CalfError,
     reader::OsReader,
 };
@@ -10,6 +13,7 @@ use std::io::{Read, Seek, SeekFrom};
 pub struct BootInfo {
     pub boot_type: BootType,
     pub partitions: Vec<Partition>,
+    pub gpt_partitions: Option<Vec<GptPartition>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -47,6 +51,38 @@ pub enum PartitionType {
     None,
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct GptPartition {
+    pub partition_guid: String,
+    pub guid: String,
+    pub platform: GuidNames,
+    pub first_lba: u64,
+    pub last_lba: u64,
+    pub attributes: u64,
+    pub partition_name: String,
+    pub offset_start: u64,
+}
+
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub enum GuidNames {
+    Linux,
+    Windows,
+    Apple,
+    Freebsd,
+    Netbsd,
+    Minix,
+    Bios,
+    Mbr,
+    Efi,
+    Unused,
+    Illumos,
+    Vmware,
+    OpenBsd,
+    Swap,
+    #[default]
+    Unknown,
+}
+
 /// Get the bootsector info from the QCOW file
 pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     reader: &mut OsReader<'qcow, 'reader, T>,
@@ -71,6 +107,12 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
             return Err(CalfError::ParseMbr);
         }
     };
+
+    // Have GPT boot sector. Extract info from GPT partitions
+    if boot.boot_type == BootType::GuidPartitionTable {
+        boot.gpt_partitions = Some(gpt_info(reader)?);
+        return Ok(boot);
+    }
 
     let mut extra_parts = Vec::new();
     let mut root_offset;
@@ -152,10 +194,43 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     Ok(boot)
 }
 
+/// Parse GPT partition info
+fn gpt_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
+    reader: &mut OsReader<'qcow, 'reader, T>,
+) -> Result<Vec<GptPartition>, CalfError> {
+    if let Err(err) = reader.seek(SeekFrom::Start(0)) {
+        error!("[calf] Could not seek to start for GPT boot info: {err:?}");
+        return Err(CalfError::SeekFile);
+    }
+
+    // 512 seems to be the most common
+    let sector_size = 512;
+    let gpt_size = 128;
+    // GPT most often has limit of 128 partitions each 128 bytes in size
+    // Header is most often 512 bytes (one sector)
+    // Boot code is also 512 bytes (one sector)
+    let size = gpt_size * gpt_size + sector_size + sector_size;
+    let mut gpt_buff = vec![0; size];
+    if let Err(err) = reader.read(&mut gpt_buff) {
+        error!("[calf] Could not read GPT first {size} bytes: {err:?}");
+        return Err(CalfError::ReadFile);
+    }
+
+    let boot = match parse_gpt(&gpt_buff) {
+        Ok((_, result)) => result,
+        Err(err) => {
+            error!("[calf] Could not parse GPT {sector_size} bytes: {err:?}");
+            return Err(CalfError::ParseGpt);
+        }
+    };
+
+    Ok(boot)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::{
-        bootsector::boot::boot_info,
+        bootsector::boot::{GuidNames, boot_info},
         calf::{CalfReader, CalfReaderAction, QcowInfo},
         format::header::CalfHeader,
     };
@@ -195,5 +270,33 @@ mod tests {
             level1_table: Vec::new(),
         };
         let _os_reader = calf.os_reader(&info).unwrap();
+    }
+
+    #[test]
+    fn test_gpt_info() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/qcow/centos.qcow");
+
+        let reader = File::open(test_location.to_str().unwrap()).unwrap();
+        let buf = BufReader::new(reader);
+
+        let mut calf = CalfReader { fs: buf };
+        let info = QcowInfo {
+            header: calf.header().unwrap(),
+            level1_table: calf.level1_entries().unwrap(),
+        };
+        let mut os_reader = calf.os_reader(&info).unwrap();
+        let results = boot_info(&mut os_reader).unwrap();
+
+        assert_eq!(results.partitions.len(), 4);
+        assert_eq!(
+            results.gpt_partitions.as_ref().unwrap()[2].platform,
+            GuidNames::Linux
+        );
+        assert_eq!(
+            results.gpt_partitions.as_ref().unwrap()[2].offset_start,
+            2683305984
+        );
+        assert_eq!(results.gpt_partitions.unwrap().len(), 4);
     }
 }
