@@ -90,6 +90,7 @@ pub(crate) enum Endian {
     Little,
 }
 
+/// Extract GUID from bytes
 pub(crate) fn extract_guid(data: &[u8], endian: Endian) -> String {
     let guid_size = 16;
     if data.len() != guid_size {
