@@ -1,6 +1,6 @@
 use crate::{
     bootsector::{
-        gpt::{GuidNames, parse_gpt},
+        gpt::parse_gpt,
         mbr::{parse_extended, parse_mbr},
     },
     error::CalfError,
@@ -60,6 +60,26 @@ pub struct GptPartition {
     pub last_lba: u64,
     pub attributes: u64,
     pub partition_name: String,
+    pub offset_start: u64,
+}
+
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
+pub enum GuidNames {
+    Linux,
+    Windows,
+    Apple,
+    Freebsd,
+    Netbsd,
+    Minix,
+    Bios,
+    Mbr,
+    Efi,
+    Unused,
+    Illumos,
+    Vmware,
+    OpenBsd,
+    #[default]
+    Unknown,
 }
 
 /// Get the bootsector info from the QCOW file

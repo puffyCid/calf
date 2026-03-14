@@ -1,5 +1,5 @@
 use calf::{
-    bootsector::boot::PartitionType,
+    bootsector::boot::{GuidNames, PartitionType},
     calf::{CalfReader, CalfReaderAction, QcowInfo},
     format::{header::CalfHeader, level::CalfLevel},
 };
@@ -57,10 +57,11 @@ fn qcow_info(path: &str) {
     let boot_info = os_reader.get_boot_info().unwrap();
     println!("Boot info: {boot_info:?}");
 
-    os_reader.seek(SeekFrom::Start(1048576 + 1024)).unwrap();
+    os_reader.seek(SeekFrom::Start(9437184)).unwrap();
     let mut bytes = vec![0; 1024];
 
     os_reader.read(&mut bytes).unwrap();
+    println!("{bytes:?}");
 
     println!(
         "All root directory info for each partition. Total: {}",
@@ -85,6 +86,23 @@ fn qcow_info(path: &str) {
         for value in root.children {
             let stat_value = ext4_reader.stat(value.inode).unwrap();
             println!("Stat info for '{}': :{stat_value:?}\n\n", value.name);
+        }
+    }
+
+    if let Some(value) = boot_info.gpt_partitions {
+        for entry in value {
+            if entry.platform != GuidNames::Linux {
+                continue;
+            }
+
+            let os_reader = calf.os_reader(&info).unwrap();
+
+            let test = BufReader::new(os_reader);
+
+            println!("entry: {entry:?}");
+
+            let mut ext4_reader = Ext4Reader::new(test, 4096, entry.offset_start).unwrap();
+            println!("Superblock: {:?}", ext4_reader.superblock().unwrap());
         }
     }
 }

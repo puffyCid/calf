@@ -1,5 +1,5 @@
 use crate::{
-    bootsector::boot::GptPartition,
+    bootsector::boot::{GptPartition, GuidNames},
     utils::strings::{Endian, extract_guid, extract_utf16_string},
 };
 use nom::{
@@ -11,8 +11,6 @@ use std::collections::HashMap;
 /*
  * TODO:
  * 2. More Tests
- * 3. Calculate offsets to data. Offset start is just: first_lba * sector size?
- * 4. Merge GptPartition and Partition structs?
  * 5. compare with bootsector crate
  */
 
@@ -107,6 +105,7 @@ fn parse_gpt_entry(data: &[u8]) -> nom::IResult<&[u8], GptPartition> {
     let (input, name_bytes) = take(name_size)(input)?;
     let partition_name = extract_utf16_string(name_bytes);
 
+    let sector_size = 512;
     let entry = GptPartition {
         platform: *guid_mapping()
             .get(&partition_guid.to_uppercase())
@@ -117,28 +116,10 @@ fn parse_gpt_entry(data: &[u8]) -> nom::IResult<&[u8], GptPartition> {
         last_lba,
         attributes,
         partition_name,
+        offset_start: first_lba * sector_size,
     };
 
     Ok((input, entry))
-}
-
-#[derive(Clone, Copy, Default, Debug, PartialEq)]
-pub enum GuidNames {
-    Linux,
-    Windows,
-    Apple,
-    Freebsd,
-    Netbsd,
-    Minix,
-    Bios,
-    Mbr,
-    Efi,
-    Unused,
-    Illumos,
-    Vmware,
-    OpenBsd,
-    #[default]
-    Unknown,
 }
 
 /// Mappings of popular GUID partitions. From: https://en.wikipedia.org/wiki/GUID_Partition_Table
