@@ -230,7 +230,7 @@ fn gpt_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
 #[cfg(test)]
 mod tests {
     use crate::{
-        bootsector::boot::boot_info,
+        bootsector::boot::{GuidNames, boot_info},
         calf::{CalfReader, CalfReaderAction, QcowInfo},
         format::header::CalfHeader,
     };
@@ -270,5 +270,33 @@ mod tests {
             level1_table: Vec::new(),
         };
         let _os_reader = calf.os_reader(&info).unwrap();
+    }
+
+    #[test]
+    fn test_gpt_info() {
+        let mut test_location = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+        test_location.push("tests/test_data/qcow/centos.qcow");
+
+        let reader = File::open(test_location.to_str().unwrap()).unwrap();
+        let buf = BufReader::new(reader);
+
+        let mut calf = CalfReader { fs: buf };
+        let info = QcowInfo {
+            header: calf.header().unwrap(),
+            level1_table: calf.level1_entries().unwrap(),
+        };
+        let mut os_reader = calf.os_reader(&info).unwrap();
+        let results = boot_info(&mut os_reader).unwrap();
+
+        assert_eq!(results.partitions.len(), 4);
+        assert_eq!(
+            results.gpt_partitions.as_ref().unwrap()[2].platform,
+            GuidNames::Linux
+        );
+        assert_eq!(
+            results.gpt_partitions.as_ref().unwrap()[2].offset_start,
+            2683305984
+        );
+        assert_eq!(results.gpt_partitions.unwrap().len(), 4);
     }
 }
