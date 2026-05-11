@@ -2,13 +2,13 @@ use crate::{
     bootsector::boot::{GptPartition, GuidNames},
     utils::strings::{Endian, extract_guid, extract_utf16_string},
 };
-use log::error;
 use nom::{
     bytes::complete::take,
     error::ErrorKind,
     number::complete::{le_u32, le_u64},
 };
 use std::collections::HashMap;
+use tracing::{Level, event};
 
 /// Parse the GPT partition data
 pub(crate) fn parse_gpt(data: &[u8]) -> nom::IResult<&[u8], Vec<GptPartition>> {
@@ -19,7 +19,10 @@ pub(crate) fn parse_gpt(data: &[u8]) -> nom::IResult<&[u8], Vec<GptPartition>> {
     // Should be "EFI PART"
     let sig = 6075990659671082565;
     if signature != sig {
-        error!("[calf] Got bad GPT header wanted '6075990659671082565' got: {signature} ");
+        event!(
+            Level::ERROR,
+            "[calf] Got bad GPT header wanted '6075990659671082565' got: {signature} "
+        );
         return Err(nom::Err::Failure(nom::error::Error::new(
             &[],
             ErrorKind::Fail,

@@ -1,3 +1,5 @@
+use tracing::{Level, event};
+
 /// Heavily inspired by <https://github.com/panda-re/qcow-rs/blob/master/src/reader.rs> (MIT)
 use crate::{
     bootsector::boot::{BootInfo, boot_info},
@@ -5,10 +7,9 @@ use crate::{
     error::CalfError,
     format::{
         cluster::read_cluster,
-        level::{Level, read_level},
+        level::{ExtFsLevel, read_level},
     },
 };
-use log::{debug, error};
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 
 pub struct OsReader<'qcow, 'reader, T>
@@ -22,9 +23,9 @@ where
     cluster_size: u64,
     os_size: u64,
     level1_key: u64,
-    level1_cache: &'qcow Level,
-    level2_table_cache: Vec<Level>,
-    level2_cache: Level,
+    level1_cache: &'qcow ExtFsLevel,
+    level2_table_cache: Vec<ExtFsLevel>,
+    level2_cache: ExtFsLevel,
     cluster_bytes: Vec<u8>,
     level2_key: u64,
 }
@@ -63,7 +64,10 @@ impl QcowInfo {
             }
         }
 
-        error!("[calf] Could not get level one table for key {level1_key}");
+        event!(
+            Level::ERROR,
+            "[calf] Could not get level one table for key {level1_key}"
+        );
         Err(CalfError::Level)
     }
 }
@@ -125,9 +129,11 @@ impl<'a, 'qcow, T: std::io::Seek + std::io::Read> OsReader<'a, 'qcow, T> {
             ));
         }
 
-        debug!(
+        event!(
+            Level::DEBUG,
             "[calf] level 2 cache: {:?}. Level 1 cache: {:?}",
-            self.level2_cache, self.level1_cache
+            self.level2_cache,
+            self.level1_cache
         );
         self.cluster_bytes = read_cluster(
             self.reader,

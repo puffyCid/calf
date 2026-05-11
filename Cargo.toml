@@ -9,9 +9,9 @@ keywords = ["forensics"]
 
 [dependencies]
 nom = "8.0.0"
-log = "0.4.29"
+tracing = "0.1.44"
 base64 = "0.22.1"
-uuid = { version = "1.23.0", features = ["v4"] }
+uuid = { version = "1.23.1", features = ["v4"] }
 
 
 [dev-dependencies]

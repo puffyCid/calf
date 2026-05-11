@@ -1,6 +1,6 @@
 use crate::{calf::CalfReader, error::CalfError, utils::read::read_bytes};
-use log::error;
 use nom::number::complete::{be_u8, be_u32, be_u64};
+use tracing::{Level, event};
 
 /// Header info for QCOW file. Only Version 3 supported
 /// Header docs: `https://github.com/qemu/qemu/blob/master/docs/interop/qcow2.txt`
@@ -79,7 +79,10 @@ impl<T: std::io::Seek + std::io::Read> CalfHeader<T> for CalfReader<T> {
         let header = match Header::get_header(&bytes) {
             Ok((_, results)) => results,
             Err(err) => {
-                error!("[calf] Could not parse the QCOW header: {err:?}");
+                event!(
+                    Level::ERROR,
+                    "[calf] Could not parse the QCOW header: {err:?}"
+                );
                 return Err(CalfError::Header);
             }
         };
@@ -123,7 +126,10 @@ impl Header {
             } else if compress_data == 1 {
                 (remaining, Compression::Zstd)
             } else {
-                error!("[calf] Unknown compression type {compress_data}");
+                event!(
+                    Level::ERROR,
+                    "[calf] Unknown compression type {compress_data}"
+                );
                 (remaining, Compression::Unknown)
             }
         } else {

@@ -1,6 +1,6 @@
 use super::header::Compression;
-use log::warn;
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use tracing::{Level, event};
 
 /// Read bytes from the qcow cluster region
 pub(crate) fn read_cluster<T: std::io::Seek + std::io::Read>(
@@ -11,7 +11,10 @@ pub(crate) fn read_cluster<T: std::io::Seek + std::io::Read>(
     is_compressed: &bool,
 ) -> io::Result<Vec<u8>> {
     if *is_compressed {
-        warn!("[calf] Got compressed data? This is unsupported right now! Type: {compression:?}");
+        event!(
+            Level::ERROR,
+            "[calf] Got compressed data? This is unsupported right now! Type: {compression:?}"
+        );
     }
     if reader.seek(SeekFrom::Start(offset)).is_err() {
         return Err(io::Error::new(
