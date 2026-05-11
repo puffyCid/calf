@@ -43,7 +43,7 @@ checksum = "5d20789868f4b01b2f2caec9f5c4e0213b41e3e5702a50157d699ae31ced2fcb"
 
 [[package]]
 name = "calf"
-version = "0.2.1"
+version = "0.3.0"
 dependencies = [
  "base64",
  "ext4-fs",
@@ -110,19 +110,19 @@ checksum = "877a4ace8713b0bcf2a4e7eec82529c029f1d0619886d18145fea96c3ffe5c0f"
 
 [[package]]
 name = "ext4-fs"
-version = "0.1.5"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f7a809e704f6ff75dd94b7bbd99d68c5e02fa78d5b3bc4a467c53b27d337175b"
+checksum = "46c7e44549bbbd2a32a36634eaa48f38d2ce3b0e6205aef7859bf62538aa8204"
 dependencies = [
  "base16ct",
  "base64",
  "digest-io",
- "log",
  "md-5",
  "nom",
  "serde",
  "sha1",
  "sha2",
+ "tracing",
  "uuid",
 ]
 
