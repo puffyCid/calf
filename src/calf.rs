@@ -3,7 +3,7 @@ use crate::{
     format::{
         extensions::extension::{CalfExtensions, Extensions},
         header::{CalfHeader, Compression, Encryption, Header},
-        level::{CalfLevel, Level},
+        level::{CalfLevel, ExtFsLevel},
     },
     reader::OsReader,
 };
@@ -15,7 +15,7 @@ pub struct CalfReader<T: std::io::Seek + std::io::Read> {
 
 pub struct QcowInfo {
     pub header: Header,
-    pub level1_table: Vec<Level>,
+    pub level1_table: Vec<ExtFsLevel>,
 }
 
 /// Create a reader that can parse a QCOW file
@@ -35,7 +35,7 @@ pub trait CalfReaderAction<'qcow, 'reader, T: std::io::Seek + std::io::Read> {
     /// Get cluster bits value for QCOW
     fn cluster_bits(&mut self) -> Result<u32, CalfError>;
     /// List QCOW level one entries
-    fn level1_entries(&mut self) -> Result<Vec<Level>, CalfError>;
+    fn level1_entries(&mut self) -> Result<Vec<ExtFsLevel>, CalfError>;
     /// Create a reader that can read bytes from the guest OS within the QCOW file
     fn os_reader(
         &'reader mut self,
@@ -76,7 +76,7 @@ impl<'qcow, 'reader, T: std::io::Seek + std::io::Read> CalfReaderAction<'qcow, '
         Ok(self.header()?.cluster_block_bits_count)
     }
 
-    fn level1_entries(&mut self) -> Result<Vec<Level>, CalfError> {
+    fn level1_entries(&mut self) -> Result<Vec<ExtFsLevel>, CalfError> {
         let header = self.header()?;
         self.levels(header.level_one_table_offset, header.level_one_table_ref)
     }

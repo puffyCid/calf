@@ -1,9 +1,9 @@
 use crate::bootsector::boot::{BootInfo, BootType, Partition, PartitionType};
-use log::warn;
 use nom::{
     bytes::complete::take,
     number::complete::{le_u8, le_u16, le_u32},
 };
+use tracing::{Level, event};
 
 /// Parse the Master Boot Record (MBR) partition. We must be able to parse this in order to parse the rest of the filesystem
 pub(crate) fn parse_mbr(data: &[u8]) -> nom::IResult<&[u8], BootInfo> {
@@ -110,7 +110,8 @@ pub(crate) fn parse_extended(
     let mut has_extened = false;
     // The first entry in an extended partition should never? be extended Type. But check just in case
     if first_part.partition_type == PartitionType::Extended {
-        warn!(
+        event!(
+            Level::WARN,
             "[calf] The first extended partition entry is an extended partition type. This should not happen? Got: {first_part:?}"
         );
         has_extened = true;
@@ -127,7 +128,10 @@ pub(crate) fn parse_extended(
 
     let part_sig = 43605;
     if sig != part_sig {
-        warn!("[calf] Did not get expected extended signature. Expected 0xAA55, got: {sig}");
+        event!(
+            Level::WARN,
+            "[calf] Did not get expected extended signature. Expected 0xAA55, got: {sig}"
+        );
     }
 
     if extended_part.partition_type == PartitionType::Extended {

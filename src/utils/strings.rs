@@ -1,6 +1,6 @@
 use crate::utils::encoding::base64_encode_standard;
-use log::warn;
 use std::string::{FromUtf8Error, FromUtf16Error};
+use tracing::{Level, event};
 use uuid::Uuid;
 
 /// Get a UTF8 string from provided bytes data. Invalid UTF8 is base64 encoded. Use `extract_uf8_string_lossy` if replacing bytes is acceptable
@@ -9,7 +9,10 @@ pub(crate) fn extract_utf8_string(data: &[u8]) -> String {
     match utf8_result {
         Ok(result) => result,
         Err(err) => {
-            warn!("[strings-calf] Failed to get UTF8 string: {err:?}");
+            event!(
+                Level::WARN,
+                "[strings-calf] Failed to get UTF8 string: {err:?}"
+            );
             let max_size = 2097152;
             let issue = if data.len() < max_size {
                 base64_encode_standard(data)
@@ -42,7 +45,10 @@ pub(crate) fn extract_utf16_string(data: &[u8]) -> String {
             match result {
                 Ok(result) => result.trim_start_matches('\u{1}').to_string(),
                 Err(err) => {
-                    warn!("[strings] Failed to get UTF16 string: {err:?}");
+                    event!(
+                        Level::WARN,
+                        "[strings-calf] Failed to get UTF16 string: {err:?}"
+                    );
                     base64_encode_standard(data)
                 }
             }
@@ -94,7 +100,8 @@ pub(crate) enum Endian {
 pub(crate) fn extract_guid(data: &[u8], endian: Endian) -> String {
     let guid_size = 16;
     if data.len() != guid_size {
-        warn!(
+        event!(
+            Level::WARN,
             "[strings-calf] Provided data does not meet GUID size of 16 bytes, got: {}",
             data.len()
         );

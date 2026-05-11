@@ -1,6 +1,6 @@
 [package]
 name = "calf"
-version = "0.2.1"
+version = "0.3.0"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/puffyCid/calf"
@@ -9,10 +9,10 @@ keywords = ["forensics"]
 
 [dependencies]
 nom = "8.0.0"
-log = "0.4.29"
+tracing = "0.1.44"
 base64 = "0.22.1"
-uuid = { version = "1.23.0", features = ["v4"] }
+uuid = { version = "1.23.1", features = ["v4"] }
 
 
 [dev-dependencies]
-ext4-fs = "0.1.5"
+ext4-fs = "0.2.0"

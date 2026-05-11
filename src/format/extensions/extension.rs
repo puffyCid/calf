@@ -1,7 +1,7 @@
 use super::features::Features;
 use crate::{calf::CalfReader, error::CalfError, utils::read::read_bytes};
-use log::{error, warn};
 use nom::{bytes::complete::take, number::complete::be_u32};
+use tracing::{Level, event};
 
 /// QCOW may have header extensions.
 /// All are optional
@@ -30,7 +30,7 @@ impl Extensions {
         let extenions = match Extensions::get_extensions(data) {
             Ok((_, result)) => result,
             Err(_err) => {
-                error!("[calf] Could not parse the header extensions");
+                event!(Level::ERROR, "[calf] Could not parse the header extensions");
                 return Err(CalfError::HeaderExtensions);
             }
         };
@@ -60,14 +60,14 @@ impl Extensions {
 
             match sig {
                 0x0 => break,
-                0xe2792aca => warn!("[calf] Have backing file extension"),
+                0xe2792aca => event!(Level::WARN, "[calf] Have backing file extension"),
                 0x6803f857 => {
                     ext.features = Features::grab_features(feature_data).unwrap_or_default();
                 }
-                0x23852875 => warn!("[calf] Have bitmaps extension"),
-                0x0537be77 => warn!("[calf] Have encryption info"),
-                0x44415441 => warn!("[calf] Have External data file name string"),
-                _ => warn!("[calf] Unknown extension sig: {sig}"),
+                0x23852875 => event!(Level::WARN, "[calf] Have bitmaps extension"),
+                0x0537be77 => event!(Level::WARN, "[calf] Have encryption info"),
+                0x44415441 => event!(Level::WARN, "[calf] Have External data file name string"),
+                _ => event!(Level::WARN, "[calf] Unknown extension sig: {sig}"),
             }
         }
 

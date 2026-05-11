@@ -1,3 +1,5 @@
+use tracing::{Level, event};
+
 use crate::{
     bootsector::{
         gpt::parse_gpt,
@@ -6,7 +8,6 @@ use crate::{
     error::CalfError,
     reader::OsReader,
 };
-use log::error;
 use std::io::{Read, Seek, SeekFrom};
 
 #[derive(Debug)]
@@ -88,7 +89,10 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     reader: &mut OsReader<'qcow, 'reader, T>,
 ) -> Result<BootInfo, CalfError> {
     if let Err(err) = reader.seek(SeekFrom::Start(0)) {
-        error!("[calf] Could not seek to start for boot info: {err:?}");
+        event!(
+            Level::ERROR,
+            "[calf] Could not seek to start for boot info: {err:?}"
+        );
         return Err(CalfError::SeekFile);
     }
 
@@ -96,14 +100,20 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     let sector_size = 512;
     let mut mbr_buff = vec![0; sector_size];
     if let Err(err) = reader.read(&mut mbr_buff) {
-        error!("[calf] Could not read MBR first {sector_size} bytes: {err:?}");
+        event!(
+            Level::ERROR,
+            "[calf] Could not read MBR first {sector_size} bytes: {err:?}"
+        );
         return Err(CalfError::ReadFile);
     }
 
     let mut boot = match parse_mbr(&mbr_buff) {
         Ok((_, result)) => result,
         Err(err) => {
-            error!("[calf] Could not parse MBR first {sector_size} bytes: {err:?}");
+            event!(
+                Level::ERROR,
+                "[calf] Could not parse MBR first {sector_size} bytes: {err:?}"
+            );
             return Err(CalfError::ParseMbr);
         }
     };
@@ -125,12 +135,18 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
         root_offset = part.offset_start;
 
         if let Err(err) = reader.seek(SeekFrom::Start(part.offset_start)) {
-            error!("[calf] Could not seek to extended partition: {err:?}");
+            event!(
+                Level::ERROR,
+                "[calf] Could not seek to extended partition: {err:?}"
+            );
             return Err(CalfError::ExtendedPartition);
         }
         let mut mbr_buff = vec![0; sector_size];
         if let Err(err) = reader.read(&mut mbr_buff) {
-            error!("[calf] Could not read extended partition {sector_size} bytes: {err:?}");
+            event!(
+                Level::ERROR,
+                "[calf] Could not read extended partition {sector_size} bytes: {err:?}"
+            );
             return Err(CalfError::ReadFile);
         }
 
@@ -139,7 +155,8 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
             match parse_extended(&mbr_buff, root_offset, part.offset_start) {
                 Ok((_, result)) => result,
                 Err(err) => {
-                    error!(
+                    event!(
+                        Level::ERROR,
                         "[calf] Could not parse extended partition {sector_size} bytes: {err:?}"
                     );
                     return Err(CalfError::ExtendedPartition);
@@ -158,12 +175,18 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
 
                 // Our next extended partition is always relative from the first extended partition found in the Master Boot Record (MBR)
                 if let Err(err) = reader.seek(SeekFrom::Start(entry.offset_start)) {
-                    error!("[calf] Could not seek to next extended partition: {err:?}");
+                    event!(
+                        Level::ERROR,
+                        "[calf] Could not seek to next extended partition: {err:?}"
+                    );
                     return Err(CalfError::ExtendedPartition);
                 }
                 let mut mbr_buff = vec![0; sector_size];
                 if let Err(err) = reader.read(&mut mbr_buff) {
-                    error!("[calf] Could not read next extended {sector_size} bytes: {err:?}");
+                    event!(
+                        Level::ERROR,
+                        "[calf] Could not read next extended {sector_size} bytes: {err:?}"
+                    );
                     return Err(CalfError::ReadFile);
                 }
 
@@ -173,7 +196,10 @@ pub(crate) fn boot_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
                     match parse_extended(&mbr_buff, root_offset, entry.offset_start) {
                         Ok((_, result)) => result,
                         Err(err) => {
-                            error!("[calf] Could not parse MBR first {sector_size} bytes: {err:?}");
+                            event!(
+                                Level::ERROR,
+                                "[calf] Could not parse MBR first {sector_size} bytes: {err:?}"
+                            );
                             return Err(CalfError::ExtendedPartition);
                         }
                     };
@@ -199,7 +225,10 @@ fn gpt_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     reader: &mut OsReader<'qcow, 'reader, T>,
 ) -> Result<Vec<GptPartition>, CalfError> {
     if let Err(err) = reader.seek(SeekFrom::Start(0)) {
-        error!("[calf] Could not seek to start for GPT boot info: {err:?}");
+        event!(
+            Level::ERROR,
+            "[calf] Could not seek to start for GPT boot info: {err:?}"
+        );
         return Err(CalfError::SeekFile);
     }
 
@@ -212,14 +241,20 @@ fn gpt_info<'qcow, 'reader, T: std::io::Seek + std::io::Read>(
     let size = gpt_size * gpt_size + sector_size + sector_size;
     let mut gpt_buff = vec![0; size];
     if let Err(err) = reader.read(&mut gpt_buff) {
-        error!("[calf] Could not read GPT first {size} bytes: {err:?}");
+        event!(
+            Level::ERROR,
+            "[calf] Could not read GPT first {size} bytes: {err:?}"
+        );
         return Err(CalfError::ReadFile);
     }
 
     let boot = match parse_gpt(&gpt_buff) {
         Ok((_, result)) => result,
         Err(err) => {
-            error!("[calf] Could not parse GPT {sector_size} bytes: {err:?}");
+            event!(
+                Level::ERROR,
+                "[calf] Could not parse GPT {sector_size} bytes: {err:?}"
+            );
             return Err(CalfError::ParseGpt);
         }
     };

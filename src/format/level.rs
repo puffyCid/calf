@@ -1,10 +1,10 @@
 use crate::{calf::CalfReader, error::CalfError, utils::read::read_bytes};
-use log::{error, warn};
 use nom::number::complete::be_u64;
 use std::io::{BufReader, Read, Seek, SeekFrom};
+use tracing::{Level, event};
 
 #[derive(Debug, Clone)]
-pub struct Level {
+pub struct ExtFsLevel {
     /// Level 1 table offset is to Level 2 table.  
     /// Level 2 table offset is to cluster block
     pub offset: u64,
@@ -14,16 +14,16 @@ pub struct Level {
 
 pub trait CalfLevel<T: std::io::Seek + std::io::Read> {
     /// Return array of `Levels` at provided offset
-    fn levels(&mut self, offset: u64, size: u32) -> Result<Vec<Level>, CalfError>;
+    fn levels(&mut self, offset: u64, size: u32) -> Result<Vec<ExtFsLevel>, CalfError>;
 }
 
 impl<T: std::io::Seek + std::io::Read> CalfLevel<T> for CalfReader<T> {
-    fn levels(&mut self, offset: u64, level_entries: u32) -> Result<Vec<Level>, CalfError> {
+    fn levels(&mut self, offset: u64, level_entries: u32) -> Result<Vec<ExtFsLevel>, CalfError> {
         let bytes = read_bytes(offset, level_entries as u64, &mut self.fs)?;
-        let value = match Level::get_levels(&bytes) {
+        let value = match ExtFsLevel::get_levels(&bytes) {
             Ok((_, results)) => results,
             Err(_err) => {
-                error!("[calf] Failed to parse level");
+                event!(Level::ERROR, "[calf] Failed to parse level");
                 return Err(CalfError::Level);
             }
         };
@@ -36,24 +36,25 @@ pub(crate) fn read_level<T: std::io::Seek + std::io::Read>(
     reader: &mut BufReader<T>,
     cluster_bits: &u32,
     offset: &u64,
-) -> Result<Vec<Level>, CalfError> {
+) -> Result<Vec<ExtFsLevel>, CalfError> {
     if reader.seek(SeekFrom::Start(*offset)).is_err() {
-        error!("[calf] Could not seek to level offset");
+        event!(Level::ERROR, "[calf] Could not seek to level offset");
         return Err(CalfError::SeekFile);
     }
 
     let mut buf = vec![0; (1 << *cluster_bits) as usize];
     if let Ok(bytes) = reader.read(&mut buf) {
-        let levels = match Level::get_levels(&buf) {
+        let levels = match ExtFsLevel::get_levels(&buf) {
             Ok((_, results)) => results,
             Err(_err) => {
-                error!("[calf] Failed to parse level");
+                event!(Level::ERROR, "[calf] Failed to parse level");
                 return Err(CalfError::Level);
             }
         };
 
         if bytes != buf.len() {
-            warn!(
+            event!(
+                Level::WARN,
                 "[calf] Bytes read does not equal expected cluster bits size {}",
                 1 << *cluster_bits
             );
@@ -62,13 +63,13 @@ pub(crate) fn read_level<T: std::io::Seek + std::io::Read>(
         return Ok(levels);
     }
 
-    error!("[calf] Could not read to level data");
+    event!(Level::ERROR, "[calf] Could not read to level data");
     Err(CalfError::ReadFile)
 }
 
-impl Level {
+impl ExtFsLevel {
     /// Parse the `Levels` data
-    fn get_levels(data: &[u8]) -> nom::IResult<&[u8], Vec<Level>> {
+    fn get_levels(data: &[u8]) -> nom::IResult<&[u8], Vec<ExtFsLevel>> {
         let mut input = data;
         let min_size = 8;
         let offset_check = 0xfffffffffffe00;
@@ -83,7 +84,7 @@ impl Level {
 
             // Even if the offset is 0. Do not skip
             let offset = value & offset_check;
-            let level = Level {
+            let level = ExtFsLevel {
                 offset,
                 is_compressed: value & is_compressed != 0,
                 is_copied: value & is_copied != 0,
@@ -98,7 +99,7 @@ impl Level {
 
 #[cfg(test)]
 mod tests {
-    use super::Level;
+    use super::ExtFsLevel;
     use crate::{calf::CalfReader, format::level::CalfLevel};
     use std::{
         fs::{File, read},
@@ -148,7 +149,7 @@ mod tests {
         test_location.push("tests/test_data/levels/level2_version3.raw");
         let test = read(test_location.to_str().unwrap()).unwrap();
 
-        let (_, results) = Level::get_levels(&test).unwrap();
+        let (_, results) = ExtFsLevel::get_levels(&test).unwrap();
         assert_eq!(results.len(), 8192);
         assert_eq!(results[0].offset, 327680);
         assert_eq!(results[0].is_compressed, false);

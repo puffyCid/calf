@@ -1,6 +1,6 @@
 use crate::{error::CalfError, utils::strings::extract_utf8_string};
-use log::{error, warn};
 use nom::{bytes::complete::take, number::complete::be_u8};
+use tracing::{Level, event};
 
 #[derive(Debug)]
 pub struct Features {
@@ -23,7 +23,7 @@ impl Features {
         let features = match Features::get_features(data) {
             Ok((_, result)) => result,
             Err(_err) => {
-                error!("[calf] Could not pare features extension");
+                event!(Level::ERROR, "[calf] Could not pare features extension");
                 return Err(CalfError::HeaderExtensionFeatures);
             }
         };
@@ -66,7 +66,7 @@ impl Features {
             1 => FeatureType::Compatible,
             2 => FeatureType::Autoclear,
             _ => {
-                warn!("[calf] Unknown feature type {data}");
+                event!(Level::WARN, "[calf] Unknown feature type {data}");
                 FeatureType::Unknown
             }
         }
